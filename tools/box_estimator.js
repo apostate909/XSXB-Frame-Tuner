@@ -159,6 +159,92 @@ function unfilter(raw, width, height, rowBytes, bytesPerPixel) {
   return result;
 }
 
+function channel8(decoded, offset, sampleBytes) {
+  return sampleBytes === 1 ? decoded[offset] : Math.round(decoded.readUInt16BE(offset) / 257);
+}
+
+function isChromaGreen(r, g, b) {
+  const other = Math.max(r, b);
+  return g >= 28 && g - other >= 12 && g >= other * 1.12;
+}
+
+function isWeaponAccent(r, g, b) {
+  return r >= 70 && r - g >= 32 && r - b >= 18 && r >= Math.max(g, 1) * 1.3;
+}
+
+function largestMaskBounds(mask, width, height) {
+  if (!mask) return null;
+  const queue = new Int32Array(width * height);
+  let best = null;
+  for (let start = 0; start < mask.length; start += 1) {
+    if (mask[start] !== 1) continue;
+    let head = 0;
+    let tail = 0;
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+    queue[tail++] = start;
+    mask[start] = 2;
+    while (head < tail) {
+      const index = queue[head++];
+      const x = index % width;
+      const y = Math.floor(index / width);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+      for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+        for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+          if (!offsetX && !offsetY) continue;
+          const nextX = x + offsetX;
+          const nextY = y + offsetY;
+          if (nextX < 0 || nextY < 0 || nextX >= width || nextY >= height) continue;
+          const next = nextY * width + nextX;
+          if (mask[next] !== 1) continue;
+          mask[next] = 2;
+          queue[tail++] = next;
+        }
+      }
+    }
+    if (tail < 12 || (best && tail <= best.pixels)) continue;
+    best = {
+      x: minX,
+      y: minY,
+      width: maxX - minX + 1,
+      height: maxY - minY + 1,
+      pixels: tail,
+    };
+  }
+  return best;
+}
+
+function hasGreenScreenBorder(decoded, png, rowBytes, pixelBytes, sampleBytes) {
+  if (png.colorType !== 2 && png.colorType !== 6) return false;
+  const alphaOffset = png.colorType === 6 ? 3 * sampleBytes : -1;
+  const samples = [];
+  const steps = [0, 0.25, 0.5, 0.75, 1];
+  for (const step of steps) {
+    const x = Math.round((png.width - 1) * step);
+    const y = Math.round((png.height - 1) * step);
+    samples.push([x, 0], [x, png.height - 1], [0, y], [png.width - 1, y]);
+  }
+  let visible = 0;
+  let green = 0;
+  for (const [x, y] of samples) {
+    const offset = y * rowBytes + x * pixelBytes;
+    const alpha = alphaOffset >= 0 ? channel8(decoded, offset + alphaOffset, sampleBytes) : 255;
+    if (alpha <= 24) continue;
+    visible += 1;
+    if (isChromaGreen(
+      channel8(decoded, offset, sampleBytes),
+      channel8(decoded, offset + sampleBytes, sampleBytes),
+      channel8(decoded, offset + sampleBytes * 2, sampleBytes),
+    )) green += 1;
+  }
+  return visible >= 8 && green / visible >= 0.75;
+}
+
 function opaqueBoundsForPng(filePath) {
   const png = parsePng(filePath);
   if (!png?.width || !png?.height) return null;
@@ -175,14 +261,16 @@ function opaqueBoundsForPng(filePath) {
   } catch {
     return { ...fallback, canvasWidth: png.width, canvasHeight: png.height };
   }
-  if (png.colorType !== 4 && png.colorType !== 6) {
+  if (png.colorType !== 2 && png.colorType !== 4 && png.colorType !== 6) {
     return { ...fallback, canvasWidth: png.width, canvasHeight: png.height };
   }
-
-  const alphaOffset = png.colorType === 6 ? 3 * sampleBytes : sampleBytes;
-  const alphaThreshold = sampleBytes === 1 ? 24 : 24 * 257;
+  const alphaOffset = png.colorType === 6 ? 3 * sampleBytes : png.colorType === 4 ? sampleBytes : -1;
+  const greenScreen = hasGreenScreenBorder(decoded, png, rowBytes, pixelBytes, sampleBytes);
   const columns = Array(png.width).fill(0);
   const rows = Array(png.height).fill(0);
+  const weaponAccentMask = png.colorType === 2 || png.colorType === 6
+    ? new Uint8Array(png.width * png.height)
+    : null;
   let minX = png.width;
   let minY = png.height;
   let maxX = -1;
@@ -190,9 +278,19 @@ function opaqueBoundsForPng(filePath) {
   for (let y = 0; y < png.height; y += 1) {
     const rowOffset = y * rowBytes;
     for (let x = 0; x < png.width; x += 1) {
-      const offset = rowOffset + x * pixelBytes + alphaOffset;
-      const alpha = sampleBytes === 1 ? decoded[offset] : decoded.readUInt16BE(offset);
-      if (alpha <= alphaThreshold) continue;
+      const offset = rowOffset + x * pixelBytes;
+      const alpha = alphaOffset >= 0 ? channel8(decoded, offset + alphaOffset, sampleBytes) : 255;
+      if (alpha <= 24) continue;
+      if (greenScreen && isChromaGreen(
+        channel8(decoded, offset, sampleBytes),
+        channel8(decoded, offset + sampleBytes, sampleBytes),
+        channel8(decoded, offset + sampleBytes * 2, sampleBytes),
+      )) continue;
+      if (weaponAccentMask && isWeaponAccent(
+        channel8(decoded, offset, sampleBytes),
+        channel8(decoded, offset + sampleBytes, sampleBytes),
+        channel8(decoded, offset + sampleBytes * 2, sampleBytes),
+      )) weaponAccentMask[y * png.width + x] = 1;
       minX = Math.min(minX, x);
       minY = Math.min(minY, y);
       maxX = Math.max(maxX, x);
@@ -212,9 +310,14 @@ function opaqueBoundsForPng(filePath) {
   for (let y = 0; y < png.height; y += 1) {
     const rowOffset = y * rowBytes;
     for (let x = bodyXSpan.min; x <= bodyXSpan.max; x += 1) {
-      const offset = rowOffset + x * pixelBytes + alphaOffset;
-      const alpha = sampleBytes === 1 ? decoded[offset] : decoded.readUInt16BE(offset);
-      if (alpha <= alphaThreshold) continue;
+      const offset = rowOffset + x * pixelBytes;
+      const alpha = alphaOffset >= 0 ? channel8(decoded, offset + alphaOffset, sampleBytes) : 255;
+      if (alpha <= 24) continue;
+      if (greenScreen && isChromaGreen(
+        channel8(decoded, offset, sampleBytes),
+        channel8(decoded, offset + sampleBytes, sampleBytes),
+        channel8(decoded, offset + sampleBytes * 2, sampleBytes),
+      )) continue;
       bodyMinX = Math.min(bodyMinX, x);
       bodyMinY = Math.min(bodyMinY, y);
       bodyMaxX = Math.max(bodyMaxX, x);
@@ -237,12 +340,13 @@ function opaqueBoundsForPng(filePath) {
     canvasWidth: png.width,
     canvasHeight: png.height,
     body,
+    weaponAccent: largestMaskBounds(weaponAccentMask, png.width, png.height),
   };
 }
 
 function animationLooksAttack(animationId, animationName = "") {
   const text = `${animationId} ${animationName}`.toLowerCase();
-  if (/(^|[\s_-])(attack|atk|slash|strike|shoot|shot|fire|skill|cast|stab|punch|kick|bite|claw|parry|counter)(?=$|[\s_-]|\d)/.test(text)
+  if (/(^|[\s_-])(attack|atk|combo|slash|strike|shoot|shot|fire|skill|cast|stab|punch|kick|bite|claw|parry|counter)(?=$|[\s_-]|\d)/.test(text)
     || /(攻击|攻擊|斩|斬|劈|刺|射击|射擊|技能|格挡|格擋|招架|反击|反擊|砍)/.test(text)) {
     return true;
   }
@@ -347,6 +451,22 @@ function estimateFrameBoxes(filePath, options = {}) {
     }),
   };
   if (attackLike) {
+    const weapon = bounds.weaponAccent;
+    if (weapon) {
+      boxes.hitbox = normalizeBox("hitbox", {
+        offset: {
+          x: weapon.x + weapon.width / 2 - anchor.x,
+          y: weapon.y + weapon.height / 2 - anchor.y,
+        },
+        size: {
+          x: clamp(weapon.width * 1.08, 8, bounds.canvasWidth),
+          y: clamp(weapon.height * 1.08, 6, bounds.canvasHeight),
+        },
+        rotation: 0,
+        enabled: hitboxEnabledByDefault(options.frameIndex || 0, options.frameCount || 1, options.animationId, options.animationName),
+      });
+      return boxes;
+    }
     const bodyLeft = body.x;
     const bodyRight = body.x + body.width;
     const fullLeft = bounds.x;
@@ -377,6 +497,30 @@ function frameBoxKey(profileId, animationId, frameIndex) {
   return `${profileId}/${animationId}:${frameIndex}`;
 }
 
+function validBox(box) {
+  return box
+    && Number.isFinite(Number(box.offset?.x))
+    && Number.isFinite(Number(box.offset?.y))
+    && Number(box.size?.x) > 0
+    && Number(box.size?.y) > 0;
+}
+
+function frameBoxCoverageIssues(tuning, profileId, animation) {
+  const type = String(animation.type || "actor").toLowerCase();
+  if (/(vfx|effect|overlay|prop)/.test(type)) return [];
+  const required = ["hurtbox", "collisionbox"];
+  if (animationLooksAttack(animation.id, animation.name)) required.push("hitbox");
+  const issues = [];
+  for (const [frameIndex] of (animation.frames || []).entries()) {
+    const key = frameBoxKey(profileId, animation.id || animation.name, frameIndex);
+    const boxes = tuning?.frame_box_overrides?.[key];
+    for (const kind of required) {
+      if (!validBox(boxes?.[kind])) issues.push({ key, frameIndex, kind });
+    }
+  }
+  return issues;
+}
+
 function clearAnimationBoxOverrides(tuning, profileId, animationId) {
   tuning.frame_box_overrides = tuning.frame_box_overrides && typeof tuning.frame_box_overrides === "object"
     ? tuning.frame_box_overrides
@@ -395,7 +539,6 @@ function upsertEstimatedFrameBoxes(tuning, profileId, animation, frameFiles, opt
   const groupCanvas = groupCanvasForFrameFiles(frameFiles);
   frameFiles.forEach((filePath, frameIndex) => {
     const key = frameBoxKey(profileId, animation.id, frameIndex);
-    if (tuning.frame_box_overrides[key] && !options.replace) return;
     const boxes = estimateFrameBoxes(filePath, {
       type: animation.type,
       anchorMode: animation.anchorMode,
@@ -406,7 +549,15 @@ function upsertEstimatedFrameBoxes(tuning, profileId, animation, frameFiles, opt
       groupCanvasWidth: groupCanvas?.width,
       groupCanvasHeight: groupCanvas?.height,
     });
-    if (Object.keys(boxes).length) tuning.frame_box_overrides[key] = boxes;
+    if (!Object.keys(boxes).length) return;
+    if (options.replace || !tuning.frame_box_overrides[key]) {
+      tuning.frame_box_overrides[key] = boxes;
+      return;
+    }
+    const existing = tuning.frame_box_overrides[key];
+    for (const [kind, box] of Object.entries(boxes)) {
+      if (!validBox(existing[kind])) existing[kind] = box;
+    }
   });
 }
 
@@ -414,9 +565,11 @@ module.exports = {
   animationLooksAttack,
   clearAnimationBoxOverrides,
   estimateFrameBoxes,
+  frameBoxCoverageIssues,
   frameBoxKey,
   groupCanvasForFrameFiles,
   hitboxEnabledByDefault,
   opaqueBoundsForPng,
   upsertEstimatedFrameBoxes,
+  validBox,
 };

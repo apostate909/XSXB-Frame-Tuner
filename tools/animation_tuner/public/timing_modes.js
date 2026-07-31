@@ -101,6 +101,25 @@
     }));
   }
 
+  function bakedSequenceSamples(playableFrames) {
+    const samples = [];
+    let elapsedMs = 0;
+    for (const frame of Array.isArray(playableFrames) ? playableFrames : []) {
+      const durationMs = Math.max(0.001, Number(frame?.durationMs) || 0.001);
+      samples.push({
+        index: samples.length,
+        timeMs: elapsedMs + durationMs * 0.5,
+        time: (elapsedMs + durationMs * 0.5) / 1000,
+        frameIndex: Math.max(0, Math.trunc(Number(frame?.frameIndex) || 0)),
+        durationMs,
+        phase: 0.5,
+        reason: "baked_frame",
+      });
+      elapsedMs += durationMs;
+    }
+    return samples;
+  }
+
   function distributeIntegerMilliseconds(values) {
     let exactElapsed = 0;
     let integerElapsed = 0;
@@ -113,5 +132,12 @@
     });
   }
 
-  return { averageFrameTiming, groupFpsForDuration, frameSynchronousEffectSample, liteExportSamples, distributeIntegerMilliseconds };
+  return {
+    averageFrameTiming,
+    groupFpsForDuration,
+    frameSynchronousEffectSample,
+    liteExportSamples,
+    bakedSequenceSamples,
+    distributeIntegerMilliseconds,
+  };
 });

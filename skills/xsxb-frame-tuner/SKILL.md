@@ -1,6 +1,6 @@
 ---
 name: xsxb-frame-tuner
-description: Batch-import PNG folders or Godot SpriteFrames into XSXB Frame Tuner, use the isolated Lite edition for non-game frame-sequence and sprite-sheet work, wire complete playable Godot runtimes, and manage Codex Pets. Use for character/animation import, layered sequence export, attack trails, transparent sprite sheets, gameplay wiring, boxes/SFX/attachments, Codex pet tuning, or requests mentioning 添加角色, 接入 tuner, lite版, 序列帧, 多图层, or 宠物图集.
+description: Batch-import PNG folders or Godot SpriteFrames into XSXB Frame Tuner, use the isolated Lite edition for non-game frame-sequence and sprite-sheet work, wire playable Godot or Unity runtimes, and manage Codex Pets. Use for character/animation import, layered sequence export, attack trails, transparent sprite sheets, gameplay wiring, boxes/SFX/attachments, Unity migration, Codex pet tuning, or requests mentioning 添加角色, 接入 tuner, lite版, 序列帧, 多图层, or 宠物图集.
 ---
 
 # XSXB Frame Tuner
@@ -16,6 +16,8 @@ For every actor import, animation import, replacement, or gameplay wiring task, 
 - [references/validation.md](references/validation.md) for completion gates and commands.
 
 When modifying the tuner web UI or save payload, also read [references/ui-contract.md](references/ui-contract.md).
+
+For Unity bindings, migration, runtime generation, or validation, also read [references/unity-contract.md](references/unity-contract.md). Its completion rules replace the Godot-only runtime and gameplay steps below while retaining the same authoritative data and UI contracts.
 
 For non-Godot sequence work or Frame Tuner Lite tasks, read [references/lite-contract.md](references/lite-contract.md). The Godot completion contract below does not apply to Lite; the isolation and validation rules in the Lite contract replace it.
 

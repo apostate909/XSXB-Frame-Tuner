@@ -13,7 +13,7 @@ const EMPTY_TUNING = Object.freeze({
 const EMPTY_SETTINGS = Object.freeze({
   schemaVersion: 1,
   canvas: { padding: 24, autoMeasured: false },
-  export: { phaseDurationMs: 80, sheetColumns: 8 },
+  export: { sheetColumns: 8 },
 });
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -108,7 +108,7 @@ function createLiteStore(root) {
     if (!fs.existsSync(target.tuning)) writeJson(target.tuning, EMPTY_TUNING);
     if (!fs.existsSync(target.frameAudio)) writeJson(target.frameAudio, []);
     if (!fs.existsSync(target.frameImageAttachments)) writeJson(target.frameImageAttachments, []);
-    if (!fs.existsSync(target.attackTrails)) writeJson(target.attackTrails, { schemaVersion: 8, bindings: {} });
+    if (!fs.existsSync(target.attackTrails)) writeJson(target.attackTrails, { schemaVersion: 21, presets: [], bindings: {} });
     if (!fs.existsSync(target.settings)) writeJson(target.settings, EMPTY_SETTINGS);
   }
 

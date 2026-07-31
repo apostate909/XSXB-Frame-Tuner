@@ -4,15 +4,20 @@
 
 ### Features
 
+- Default newly added attack-trail sticks to path-only guides except for the current last stick, while preserving manually marked head frames.
+- Replace the split pre-stop and post-stop trail chase controls with total trail duration and tail/head speed ratio, shared by Full, Lite, exports, and Godot runtime.
+- Distinguish rendered attack-trail head frames from path-only guide sticks, with compact five-button stick controls shared by Full and Lite.
 - Add portable frame-bound SFX to Frame Tuner Lite exports and restore those bindings when a Lite sprite sheet is imported again.
-- Replace Lite export FPS with a maximum trail-phase duration so authored group and per-frame milliseconds remain the only timing authority.
+- Make Lite export every playable source frame exactly once as a baked owner/attachment/trail composite, with authored frame durations retained as metadata.
 
 ### Fixes
 
-- Keep every playable source frame in Lite output while deriving additional trail samples only from its real duration, independent of stick count or saved stick phases.
-- Avoid floating-point over-sampling at exact duration boundaries and distribute integer Sheet durations without changing the animation total.
+- Keep a selected path-only stick visible as an authoring preview after its head-frame flag is cleared, without making it a runtime or exported head pose.
+- Prefer the generated trail over its style preset when opening an action, and label presets as not affecting existing trails so live timing edits apply to the visible trail.
+- Keep attack trails advancing continuously across frame boundaries so a longer total duration finishes in following animation frames instead of flashing once.
+- Require explicit per-frame trail insertion in Lite; legacy stick-only paths remain editable but no longer render or export automatically.
+- Distribute integer Sheet durations without changing the animation total.
 - Make `spritesheet.json` the sole descriptor for Sheet exports; PNG sequence exports continue to use `export.json`.
-- Restrict duration-based sub-sampling to frames actually overlapped by an active attack trail; animations and frames without trails remain one-for-one.
 
 ## 0.3.0 - 2026-07-22
 

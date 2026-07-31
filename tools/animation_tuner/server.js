@@ -3,8 +3,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
-const { EMPTY_MANIFEST, EMPTY_TUNING, createProjectStore, reslash } = require("../project_store");
+const { EMPTY_MANIFEST, EMPTY_TUNING, bindingScopeForProject, createProjectStore, projectEngine, reslash } = require("../project_store");
 const { syncFrameAudio, syncGodotProject } = require("../godot_sync");
+const { listUnitySceneFiles, syncUnityProject, validUnityProjectRoot, validateUnitySync } = require("../unity_sync");
 const {
   EMPTY_ATTACK_TRAILS,
   normalizeAttackTrails,
@@ -12,6 +13,12 @@ const {
   saveAttackTrailTexture,
   validateAttackTrails,
 } = require("../attack_trails");
+const {
+  attackTrailsWithSharedPresets,
+  attackTrailsWithoutSharedPresets,
+  saveSharedAttackTrailPresets,
+  sharedAttackTrailPresetPath,
+} = require("../attack_trail_presets");
 const { profileIdsForSceneText } = require("../scene_profiles");
 const {
   ATLAS_HEIGHT_V2,
@@ -24,6 +31,7 @@ const {
 } = require("../codex_pets");
 const { checkForUpdates, performUpdate } = require("../updater");
 const { withUtf8Charset } = require("../http_content_type");
+const { frameBoxCoverageIssues } = require("../box_estimator");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const PUBLIC = path.join(__dirname, "public");
@@ -249,7 +257,8 @@ function readFrameAudioBindings(project) {
 function readAttackTrails(project) {
   if (project?.kind === "codex_pets") return EMPTY_ATTACK_TRAILS;
   projectStore.ensureProjectFiles(project);
-  return normalizeAttackTrails(projectStore.readJson(projectStore.projectPaths(project).attackTrails, EMPTY_ATTACK_TRAILS));
+  const local = normalizeAttackTrails(projectStore.readJson(projectStore.projectPaths(project).attackTrails, EMPTY_ATTACK_TRAILS));
+  return attackTrailsWithSharedPresets(ROOT, project.id, local);
 }
 
 function readFrameImageAttachments(project) {
@@ -263,6 +272,7 @@ function readFrameImageAttachments(project) {
 function tuningForClient(tuningFile) {
   return {
     ...tuningFile.values,
+    values: tuningFile.values,
     scene_settings: tuningFile.scene_settings,
     frame_visual_overrides: tuningFile.frame_visual_overrides,
     frame_playback_overrides: tuningFile.frame_playback_overrides,
@@ -855,7 +865,27 @@ function validateGameLocalBindingKeys(project) {
   return warnings;
 }
 
-function validateProject(project, manifest) {
+function validateFrameBoxCoverage(manifest, tuning) {
+  const warnings = [];
+  for (const profile of Array.isArray(manifest?.profiles) ? manifest.profiles : []) {
+    for (const animation of Array.isArray(profile?.animations) ? profile.animations : []) {
+      const issues = frameBoxCoverageIssues(tuning, profile.id, animation);
+      if (!issues.length) continue;
+      const counts = issues.reduce((result, issue) => {
+        result[issue.kind] = (result[issue.kind] || 0) + 1;
+        return result;
+      }, {});
+      const labels = { hurtbox: "受击框", collisionbox: "碰撞框", hitbox: "攻击框" };
+      const total = Array.isArray(animation.frames) ? animation.frames.length : 0;
+      for (const [kind, count] of Object.entries(counts)) {
+        warnings.push(`${profile.id}/${animation.id || animation.name}: ${count}/${total} 帧缺少有效${labels[kind] || kind}。`);
+      }
+    }
+  }
+  return warnings;
+}
+
+function validateProject(project, manifest, tuning = readTuningFile(project)) {
   if (project?.kind === "codex_pets") {
     const warnings = [...validateManifest(manifest)];
     for (const profile of manifest.profiles || []) {
@@ -871,8 +901,27 @@ function validateProject(project, manifest) {
     }
     return warnings;
   }
+  if (projectEngine(project) === "unity") {
+    const warnings = [
+      ...validateManifest(manifest),
+      ...validateFrameBoxCoverage(manifest, tuning),
+      ...validateAttackTrails(readAttackTrails(project), manifest),
+      ...validateCharacterScaleValues(project, manifest),
+    ];
+    const unityRoot = validUnityProjectRoot(project);
+    if (!unityRoot) warnings.push(`Unity project root is invalid: ${project?.projectRoot || "(empty)"}`);
+    else {
+      const runtimeData = path.join(unityRoot, "Assets", "XSXBFrameTuner", "RuntimeData", project.id, "xsxb_runtime_data.json");
+      if (fs.existsSync(runtimeData)) warnings.push(...validateUnitySync(unityRoot, project.id));
+    }
+    return warnings;
+  }
+  if (projectEngine(project) !== "godot") {
+    return [...validateManifest(manifest), ...validateFrameBoxCoverage(manifest, tuning)];
+  }
   return [
     ...validateManifest(manifest),
+    ...validateFrameBoxCoverage(manifest, tuning),
     ...validateAttackTrails(readAttackTrails(project), manifest),
     ...validateCharacterScaleValues(project, manifest),
     ...validateGdscriptTypeInference(project?.projectRoot),
@@ -931,6 +980,8 @@ function configResponse(projectId) {
       workspaceAllRoot: path.join(ROOT, "workspace"),
       projectRoot: "",
       activeProjectId: "",
+      bindingProjectId: "",
+      dataProjectIds: [],
       activeProject: null,
       projects: [],
       scenes: [],
@@ -967,24 +1018,33 @@ function configResponse(projectId) {
   const manifest = readManifest(project);
   const tuningFile = readTuningFile(project);
   const groups = buildGroups(manifest, tuningFile);
-  const warnings = [...codexPets.warnings, ...validateProject(project, manifest)];
+  const warnings = [...codexPets.warnings, ...validateProject(project, manifest, tuningFile)];
   if (!groups.length) {
     warnings.unshift("当前项目没有已导入的动画组。请先用 skill/import_frames/import_spriteframes 导入 PNG 序列或 SpriteFrames。");
   }
   const projectClient = projectStore.projectForClient(project);
+  const bindingScope = bindingScopeForProject(registry, project);
+  const attackTrails = project.kind === "codex_pets" ? EMPTY_ATTACK_TRAILS : readAttackTrails(project);
   return {
     root: ROOT,
     workspaceRoot: projectStore.projectWorkspaceDir(project),
     workspaceAllRoot: path.join(ROOT, "workspace"),
     projectRoot: project.projectRoot,
     activeProjectId: project.id,
+    bindingProjectId: bindingScope.bindingProjectId,
+    dataProjectIds: bindingScope.dataProjectIds,
     activeProject: projectClient,
+    configRevision: projectConfigRevision(project),
     projects: registry.projects.map(projectStore.projectForClient),
-    scenes: project.kind === "codex_pets" ? [] : listSceneFiles(project.projectRoot, manifest.profiles),
+    scenes: projectEngine(project) === "godot"
+      ? listSceneFiles(project.projectRoot, manifest.profiles)
+      : projectEngine(project) === "unity"
+        ? listUnitySceneFiles(project.projectRoot, manifest.profiles)
+        : [],
     profiles: manifest.profiles.map(profileForClient),
     frameAudioBindings: readFrameAudioBindings(project),
     frameImageAttachments: readFrameImageAttachments(project),
-    attackTrails: project.kind === "codex_pets" ? EMPTY_ATTACK_TRAILS : readAttackTrails(project),
+    attackTrails,
     tuning: tuningForClient(tuningFile),
     tuningDefaults: {},
     bossTuning: {},
@@ -1007,8 +1067,28 @@ function configResponse(projectId) {
       bossFloorTopOffsetY: 0,
     },
     projectKind: project.kind || "godot",
+    projectEngine: projectEngine(project),
     groups,
   };
+}
+
+function projectConfigRevision(project) {
+  const paths = projectStore.projectPaths(project);
+  const hash = crypto.createHash("sha256");
+  for (const filePath of [
+    paths.manifest,
+    paths.tuning,
+    paths.frameAudio,
+    paths.frameImageAttachments,
+    paths.attackTrails,
+    sharedAttackTrailPresetPath(ROOT),
+  ]) {
+    hash.update(path.basename(filePath));
+    hash.update("\0");
+    hash.update(fs.existsSync(filePath) ? fs.readFileSync(filePath) : Buffer.alloc(0));
+    hash.update("\0");
+  }
+  return hash.digest("hex");
 }
 
 function normalizeTuningScaleValues(values) {
@@ -1028,13 +1108,25 @@ function normalizeTuningScaleValues(values) {
 }
 
 function saveTuningPayload(payload, project) {
+  const current = readTuningFile(project);
+  const supplied = (key) => Object.prototype.hasOwnProperty.call(payload, key);
   const next = {
     schemaVersion: 1,
-    values: normalizeTuningScaleValues(payload.values),
-    scene_settings: payload.scene_settings && typeof payload.scene_settings === "object" ? payload.scene_settings : {},
-    frame_visual_overrides: payload.frame_visual_overrides && typeof payload.frame_visual_overrides === "object" ? payload.frame_visual_overrides : {},
-    frame_playback_overrides: payload.frame_playback_overrides && typeof payload.frame_playback_overrides === "object" ? payload.frame_playback_overrides : {},
-    frame_box_overrides: payload.frame_box_overrides && typeof payload.frame_box_overrides === "object" ? payload.frame_box_overrides : {},
+    values: supplied("values") && payload.values && typeof payload.values === "object"
+      ? normalizeTuningScaleValues(payload.values)
+      : current.values,
+    scene_settings: supplied("scene_settings") && payload.scene_settings && typeof payload.scene_settings === "object"
+      ? payload.scene_settings
+      : current.scene_settings,
+    frame_visual_overrides: supplied("frame_visual_overrides") && payload.frame_visual_overrides && typeof payload.frame_visual_overrides === "object"
+      ? payload.frame_visual_overrides
+      : current.frame_visual_overrides,
+    frame_playback_overrides: supplied("frame_playback_overrides") && payload.frame_playback_overrides && typeof payload.frame_playback_overrides === "object"
+      ? payload.frame_playback_overrides
+      : current.frame_playback_overrides,
+    frame_box_overrides: supplied("frame_box_overrides") && payload.frame_box_overrides && typeof payload.frame_box_overrides === "object"
+      ? payload.frame_box_overrides
+      : current.frame_box_overrides,
   };
   projectStore.writeJson(projectStore.projectPaths(project).tuning, next);
 }
@@ -1054,9 +1146,12 @@ function saveFrameAudioBindings(payload, project) {
       key,
       ...(value && typeof value === "object" ? value : {}),
     })).filter((entry) => entry && typeof entry === "object");
-  const usableBindings = bindings.filter((entry) => entry.data || entry.path || entry.file);
-  projectStore.writeJson(projectStore.projectPaths(project).frameAudio, usableBindings);
-  return usableBindings;
+  const unusableBindings = bindings.filter((entry) => !entry.data && !entry.path && !entry.file);
+  if (unusableBindings.length) {
+    throw new Error(`${unusableBindings.length} 条音效记录缺少可保存的音频数据或稳定路径，已阻止覆盖原音效。`);
+  }
+  projectStore.writeJson(projectStore.projectPaths(project).frameAudio, bindings);
+  return bindings;
 }
 
 function saveAttackTrails(payload, project) {
@@ -1076,8 +1171,140 @@ function saveAttackTrails(payload, project) {
       }
     }
   }
-  projectStore.writeJson(projectStore.projectPaths(project).attackTrails, trails);
-  return trails;
+  saveSharedAttackTrailPresets(ROOT, project.id, trails.presets);
+  const projectTrails = attackTrailsWithoutSharedPresets(trails);
+  projectStore.writeJson(projectStore.projectPaths(project).attackTrails, projectTrails);
+  return projectTrails;
+}
+
+function remapFrameOverrideDictionary(source, framePrefix, frameIndex) {
+  const result = {};
+  for (const [key, value] of Object.entries(source || {})) {
+    if (!key.startsWith(framePrefix)) {
+      result[key] = value;
+      continue;
+    }
+    const suffix = key.slice(framePrefix.length);
+    if (!/^\d+$/.test(suffix)) {
+      result[key] = value;
+      continue;
+    }
+    const index = Number(suffix);
+    const targetIndex = index > frameIndex ? index + 1 : index;
+    result[`${framePrefix}${targetIndex}`] = value;
+    if (index === frameIndex) result[`${framePrefix}${frameIndex + 1}`] = structuredClone(value);
+  }
+  return result;
+}
+
+function bindingTargetsFrame(entry, profileId, animationId) {
+  const metadata = entry?.metadata && typeof entry.metadata === "object" ? entry.metadata : {};
+  const profile = String(metadata.profileId || entry?.profileId || "");
+  const animation = String(metadata.animation || entry?.animation || "");
+  return profile === profileId && (animation === animationId || animation === `${profileId}/${animationId}`);
+}
+
+function bindingAtFrame(entry, frameIndex, options = {}) {
+  const next = structuredClone(entry);
+  const replaceFrameSuffix = (value) => String(value || "").replace(/:\d+$/, `:${frameIndex}`);
+  if (next.key) next.key = replaceFrameSuffix(next.key);
+  if (next.frameKey) next.frameKey = replaceFrameSuffix(next.frameKey);
+  if (Number.isFinite(Number(next.frame))) next.frame = frameIndex;
+  if (Number.isFinite(Number(next.displayFrame))) next.displayFrame = frameIndex;
+  if (next.metadata && typeof next.metadata === "object") {
+    next.metadata.frame = frameIndex;
+    next.metadata.displayFrame = frameIndex;
+  }
+  if (options.newId && next.id) next.id = `layer_${crypto.randomBytes(10).toString("hex")}`;
+  return next;
+}
+
+function duplicateFrameBindings(entries, profileId, animationId, frameIndex, options = {}) {
+  const result = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (!bindingTargetsFrame(entry, profileId, animationId)) {
+      result.push(entry);
+      continue;
+    }
+    const metadata = entry?.metadata && typeof entry.metadata === "object" ? entry.metadata : {};
+    const currentFrame = Number(metadata.frame ?? entry.frame);
+    if (!Number.isFinite(currentFrame)) {
+      result.push(entry);
+      continue;
+    }
+    result.push(bindingAtFrame(entry, currentFrame > frameIndex ? currentFrame + 1 : currentFrame));
+    if (currentFrame === frameIndex) result.push(bindingAtFrame(entry, frameIndex + 1, options));
+  }
+  return result;
+}
+
+function duplicateTrailFrameSlices(trails, bindingKey, frameIndex) {
+  const next = structuredClone(trails);
+  const segments = Array.isArray(next.bindings?.[bindingKey]) ? next.bindings[bindingKey] : [];
+  for (const segment of segments) {
+    for (const stick of Array.isArray(segment.sticks) ? segment.sticks : []) {
+      if (Number(stick.frame) > frameIndex) stick.frame = Number(stick.frame) + 1;
+    }
+    if (!segment.frameSlices || typeof segment.frameSlices !== "object" || Array.isArray(segment.frameSlices)) continue;
+    const slices = {};
+    for (const [rawFrame, slice] of Object.entries(segment.frameSlices)) {
+      const currentFrame = Number(rawFrame);
+      if (!Number.isFinite(currentFrame)) continue;
+      slices[String(currentFrame > frameIndex ? currentFrame + 1 : currentFrame)] = slice;
+      if (currentFrame === frameIndex) slices[String(frameIndex + 1)] = structuredClone(slice);
+    }
+    segment.frameSlices = slices;
+  }
+  return next;
+}
+
+function duplicateProjectFrame(project, payload) {
+  const profileId = String(payload.profileId || "");
+  const animationId = String(payload.animationId || "");
+  const frameIndex = Math.max(0, Math.round(Number(payload.frameIndex || 0)));
+  projectStore.ensureProjectFiles(project);
+  const paths = projectStore.projectPaths(project);
+  const manifest = projectStore.readJson(paths.manifest, EMPTY_MANIFEST);
+  const profile = manifest.profiles.find((entry) => String(entry.id) === profileId);
+  const animation = profile?.animations?.find((entry) => String(entry.id || entry.name) === animationId);
+  const frames = Array.isArray(animation?.frames) ? animation.frames : null;
+  if (!profile || !animation || !frames || frameIndex >= frames.length) {
+    throw new Error(`Frame not found: ${profileId}/${animationId}:${frameIndex}`);
+  }
+
+  const copiedFrame = structuredClone(frames[frameIndex]);
+  copiedFrame.id = `${String(copiedFrame.id || `frame_${frameIndex + 1}`)}_copy_${crypto.randomBytes(5).toString("hex")}`;
+  frames.splice(frameIndex + 1, 0, copiedFrame);
+
+  const tuning = readTuningFile(project);
+  const framePrefix = `${profileId}/${animationId}:`;
+  tuning.frame_visual_overrides = remapFrameOverrideDictionary(tuning.frame_visual_overrides, framePrefix, frameIndex);
+  tuning.frame_playback_overrides = remapFrameOverrideDictionary(tuning.frame_playback_overrides, framePrefix, frameIndex);
+  tuning.frame_box_overrides = remapFrameOverrideDictionary(tuning.frame_box_overrides, framePrefix, frameIndex);
+  const audio = duplicateFrameBindings(readFrameAudioBindings(project), profileId, animationId, frameIndex);
+  const attachments = duplicateFrameBindings(readFrameImageAttachments(project), profileId, animationId, frameIndex, { newId: true });
+  const trails = duplicateTrailFrameSlices(readAttackTrails(project), `${profileId}/${animationId}`, frameIndex);
+
+  projectStore.writeJson(paths.manifest, manifest);
+  projectStore.writeJson(paths.tuning, tuning);
+  projectStore.writeJson(paths.frameAudio, audio);
+  projectStore.writeJson(paths.frameImageAttachments, attachments);
+  projectStore.writeJson(paths.attackTrails, trails);
+
+  const engine = projectEngine(project);
+  const syncOptions = { frameAudioBindings: audio, frameImageAttachments: attachments, attackTrails: trails };
+  const godotSync = engine === "godot" ? syncGodotProject(ROOT, projectStore, project, syncOptions) : null;
+  const unitySync = engine === "unity" ? syncUnityProject(ROOT, projectStore, project, syncOptions) : null;
+  const runtimeProjectIdFiles = engine === "godot" ? syncGodotRuntimeProjectId(project) : [];
+  return {
+    frameIndex: frameIndex + 1,
+    frameCount: frames.length,
+    engine,
+    godotSync,
+    unitySync,
+    runtimeProjectIdFiles,
+    warnings: validateProject(project, normalizeManifest(manifest)),
+  };
 }
 
 function saveFrameAttachmentImage(payload, project) {
@@ -1158,6 +1385,9 @@ function serveStatic(req, res, pathname) {
   if (!full || !fs.existsSync(full) || fs.statSync(full).isDirectory()) {
     return send(res, 404, "Not found", "text/plain");
   }
+  res.setHeader("cache-control", "no-store, no-cache, must-revalidate");
+  res.setHeader("pragma", "no-cache");
+  res.setHeader("expires", "0");
   const ext = path.extname(full).toLowerCase();
   const type = ext === ".js" ? "application/javascript" : ext === ".css" ? "text/css" : "text/html";
   return send(res, 200, fs.readFileSync(full), type);
@@ -1213,21 +1443,76 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && parsed.pathname === "/api/config") {
       return send(res, 200, configResponse(parsed.searchParams.get("project")));
     }
+    if (req.method === "POST" && parsed.pathname === "/api/unity-baked-frames") {
+      const payload = JSON.parse(await readBody(req));
+      const { project } = projectFromRequest(payload.projectId || parsed.searchParams.get("project"));
+      if (projectEngine(project) !== "unity") return send(res, 400, { error: "Unity baked frames require a Unity project." });
+      if (!Array.isArray(payload.bakedFrames)) return send(res, 400, { error: "bakedFrames must be an array." });
+      const unitySync = syncUnityProject(ROOT, projectStore, project, { bakedFrames: payload.bakedFrames });
+      return send(res, 200, { ok: true, engine: "unity", unitySync });
+    }
+    if (req.method === "POST" && parsed.pathname === "/api/duplicate-frame") {
+      const payload = JSON.parse(await readBody(req));
+      const { project } = projectFromRequest(payload.projectId || parsed.searchParams.get("project"));
+      const currentRevision = projectConfigRevision(project);
+      const suppliedRevision = String(payload.configRevision || "");
+      if (payload.force !== true && suppliedRevision !== currentRevision) {
+        return send(res, 409, {
+          error: "服务器数据已被其他页面或工具更新，本次旧页面复制已阻止。请刷新页面后再操作。",
+          code: "stale_config",
+          configRevision: currentRevision,
+        });
+      }
+      const duplicated = duplicateProjectFrame(project, payload);
+      return send(res, 200, {
+        ok: true,
+        ...duplicated,
+        configRevision: projectConfigRevision(project),
+      });
+    }
     if (req.method === "POST" && parsed.pathname === "/api/save") {
       const payload = JSON.parse(await readBody(req));
       const { project } = projectFromRequest(payload.projectId || parsed.searchParams.get("project"));
+      const currentRevision = projectConfigRevision(project);
+      const suppliedRevision = String(payload.configRevision || "");
+      if (payload.force !== true && suppliedRevision !== currentRevision) {
+        return send(res, 409, {
+          error: "服务器数据已被其他页面或工具更新；本次旧页面保存已阻止。请刷新页面后再修改。",
+          code: "stale_config",
+          configRevision: currentRevision,
+        });
+      }
+      const requestedUnityBakes = payload.unity_baked_frames || payload.unityBakedFrames;
+      if (projectEngine(project) === "unity" && Array.isArray(requestedUnityBakes)
+        && requestedUnityBakes.some((frame) => !frame?.mainAnchor
+          || !Number.isFinite(Number(frame.mainAnchor.x))
+          || !Number.isFinite(Number(frame.mainAnchor.y)))) {
+        return send(res, 409, {
+          error: "烘焙锚点格式已经更新，请刷新 Tuner 页面后重新保存。旧页面的烘焙结果已被阻止，现有游戏帧未被覆盖。",
+          code: "stale_bake_client",
+          configRevision: currentRevision,
+        });
+      }
       saveTuningPayload(payload, project);
       let frameAudioBindings = null;
       if (Array.isArray(payload.frame_audio_bindings) || Array.isArray(payload.frameAudioBindings) || payload.frameAudioBindings) {
-        frameAudioBindings = saveFrameAudioBindings(payload.frame_audio_bindings || payload.frameAudioBindings, project);
+        const requestedAudio = payload.frame_audio_bindings || payload.frameAudioBindings;
+        const currentAudio = readFrameAudioBindings(project);
+        frameAudioBindings = Array.isArray(requestedAudio) && requestedAudio.length === 0 && currentAudio.length > 0
+          ? currentAudio
+          : saveFrameAudioBindings(requestedAudio, project);
       }
       let frameImageAttachments = null;
       if (Array.isArray(payload.frame_image_attachments) || Array.isArray(payload.frameImageAttachments)) {
         frameImageAttachments = saveFrameImageAttachments(payload.frame_image_attachments || payload.frameImageAttachments, project);
       }
+      const hasAttackTrails = Object.prototype.hasOwnProperty.call(payload, "attack_trails")
+        || Object.prototype.hasOwnProperty.call(payload, "attackTrails");
       const attackTrails = project.kind === "codex_pets"
         ? EMPTY_ATTACK_TRAILS
-        : saveAttackTrails(payload.attack_trails || payload.attackTrails || EMPTY_ATTACK_TRAILS, project);
+        : hasAttackTrails
+          ? saveAttackTrails(payload.attack_trails || payload.attackTrails || EMPTY_ATTACK_TRAILS, project)
+          : readAttackTrails(project);
       const codexPetExports = [];
       if (project.kind === "codex_pets") {
         for (const entry of Array.isArray(payload.codex_pet_exports) ? payload.codex_pet_exports : []) {
@@ -1236,16 +1521,25 @@ const server = http.createServer(async (req, res) => {
         clearExportedPetTuning(projectStore, project, codexPetExports.map((entry) => entry.profileId));
         syncCodexPetProject(ROOT, projectStore, project);
       }
-      const godotSync = project.kind === "codex_pets" ? null : syncGodotProject(ROOT, projectStore, project, {
+      const engine = projectEngine(project);
+      const syncOptions = {
         ...(frameAudioBindings ? { frameAudioBindings } : {}),
         ...(frameImageAttachments ? { frameImageAttachments } : {}),
+        ...(Array.isArray(payload.unity_baked_frames) || Array.isArray(payload.unityBakedFrames)
+          ? { bakedFrames: payload.unity_baked_frames || payload.unityBakedFrames }
+          : {}),
         attackTrails,
-      });
-      const runtimeProjectIdFiles = project.kind === "codex_pets" ? [] : syncGodotRuntimeProjectId(project);
+      };
+      const godotSync = engine === "godot" ? syncGodotProject(ROOT, projectStore, project, syncOptions) : null;
+      const unitySync = engine === "unity" ? syncUnityProject(ROOT, projectStore, project, syncOptions) : null;
+      const runtimeProjectIdFiles = engine === "godot" ? syncGodotRuntimeProjectId(project) : [];
       return send(res, 200, {
         ok: true,
+        configRevision: projectConfigRevision(project),
         tuning: tuningForClient(readTuningFile(project)),
+        engine,
         godotSync,
+        unitySync,
         runtimeProjectIdFiles,
         codexPetExports,
         warnings: validateProject(project, readManifest(project)),
@@ -1260,15 +1554,34 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && parsed.pathname === "/api/frame-audio") {
       const payload = JSON.parse(await readBody(req));
       const { project } = projectFromRequest(payload.projectId || parsed.searchParams.get("project"));
-      const bindings = Array.isArray(payload.frameAudioBindings)
-        ? payload.frameAudioBindings
-        : Object.entries(payload.frameAudioBindings || {}).map(([key, value]) => ({
-          key,
-          ...(value && typeof value === "object" ? value : {}),
-        }));
+      const currentRevision = projectConfigRevision(project);
+      if (payload.force !== true && String(payload.configRevision || "") !== currentRevision) {
+        return send(res, 409, {
+          error: "服务器数据已被其他页面或工具更新，本次旧页面音效同步已阻止。请刷新页面后再操作。",
+          code: "stale_config",
+          configRevision: currentRevision,
+        });
+      }
+      if (!Array.isArray(payload.frameAudioBindings)) {
+        return send(res, 400, { error: "frameAudioBindings 必须是数组，已阻止覆盖原音效。" });
+      }
+      const currentBindings = readFrameAudioBindings(project);
+      if (!payload.frameAudioBindings.length && currentBindings.length && payload.allowEmpty !== true) {
+        return send(res, 400, { error: "页面提交了空音效列表，但没有明确删除授权，已保留服务器上的音效。" });
+      }
+      const bindings = payload.frameAudioBindings;
       saveFrameAudioBindings(bindings, project);
-      const godotAudioSync = syncFrameAudio(projectStore, project, bindings);
-      return send(res, 200, { ok: true, frameAudioCount: bindings.length, godotAudioSync });
+      const engine = projectEngine(project);
+      const godotAudioSync = engine === "godot" ? syncFrameAudio(ROOT, projectStore, project, bindings) : null;
+      const unitySync = engine === "unity" ? syncUnityProject(ROOT, projectStore, project, { frameAudioBindings: bindings }) : null;
+      return send(res, 200, {
+        ok: true,
+        configRevision: projectConfigRevision(project),
+        engine,
+        frameAudioCount: bindings.length,
+        godotAudioSync,
+        unitySync,
+      });
     }
     if (req.method === "POST" && parsed.pathname === "/api/frame-attachment-image") {
       const payload = JSON.parse(await readBody(req));
@@ -1278,7 +1591,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && parsed.pathname === "/api/replace-frame") {
       const payload = JSON.parse(await readBody(req));
       const { project } = projectFromRequest(payload.projectId || parsed.searchParams.get("project"));
-      return send(res, 200, { ok: true, frame: replaceFrameImage(payload, project) });
+      const frame = replaceFrameImage(payload, project);
+      const unitySync = projectEngine(project) === "unity" ? syncUnityProject(ROOT, projectStore, project) : null;
+      return send(res, 200, { ok: true, frame, unitySync });
     }
     if (req.method === "POST" && parsed.pathname === "/api/replace-animation") {
       const payload = JSON.parse(await readBody(req));
@@ -1289,7 +1604,8 @@ const server = http.createServer(async (req, res) => {
         return send(res, 400, { error: `Expected exactly ${frames.length} PNG files` });
       }
       const result = frames.map((frame, index) => replaceFrameImage({ path: frame.path, data: files[index].data }, project));
-      return send(res, 200, { ok: true, frames: result });
+      const unitySync = projectEngine(project) === "unity" ? syncUnityProject(ROOT, projectStore, project) : null;
+      return send(res, 200, { ok: true, frames: result, unitySync });
     }
     if (req.method === "GET" && parsed.pathname === "/asset") {
       const relPath = parsed.searchParams.get("path");

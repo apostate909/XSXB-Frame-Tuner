@@ -15,6 +15,10 @@ desktop.ini
 .idea/
 .tmp/
 screenshots/
+exports/
+work/
+__pycache__/
+*.py[cod]
 
 # Local tuner registry and per-project data.
 data/projects.json

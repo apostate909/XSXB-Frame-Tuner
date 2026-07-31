@@ -3,12 +3,14 @@ extends Node2D
 const TRAIL_SHADER: Shader = preload("res://xsxb_frame_tuner/runtime/xsxb_attack_trail.gdshader")
 const SPEED_PROFILE = [0.94, 1.015, 0.985, 1.025, 1.035, 1.02, 0.97, 1.04]
 const TAIL_WIDTH_SPEED_INFLUENCE := 0.18
+const DEFAULT_TAIL_HEAD_SPEED_RATIO := 0.7
+const DEFAULT_PATH_COLUMNS := 20
 const DEFAULT_BEFORE_CHASE_MULTIPLIER := 0.5
 const DEFAULT_AFTER_CHASE_MULTIPLIER := 2.0
-const DEFAULT_PATH_COLUMNS := 20
 const LEGACY_BEFORE_CHASE_SPEED := 110.0
 const LEGACY_AFTER_CHASE_SPEED := 680.0
 const TRAIL_MESH_WIDTH_ROWS := 17
+const GLOW_MARGIN_ROWS := 4
 const FINAL_HEAD_CAP_MARGIN_RATIO := 0.25
 
 var actor: Node = null
@@ -77,6 +79,7 @@ func _create_renderer(segment_id: String, segment: Dictionary) -> Dictionary:
 		"speeds": PackedFloat32Array(),
 		"last_animation": "",
 		"last_sample_time": -1.0,
+		"last_frame": -1,
 	}
 
 
@@ -84,14 +87,93 @@ func _apply_material(material: ShaderMaterial, segment: Dictionary) -> void:
 	var texture_data: Dictionary = segment.get("texture", {}) if segment.get("texture", {}) is Dictionary else {}
 	var texture_path := String(texture_data.get("path", ""))
 	var texture: Texture2D = load(texture_path) as Texture2D if texture_path != "" else null
+	var breakup := _material_layer(segment, "breakup")
+	var streaks := _material_layer(segment, "streaks")
+	var core := _material_layer(segment, "core")
+	var breakup_texture := _material_texture(breakup)
+	var streaks_texture := _material_texture(streaks)
+	var core_texture := _material_texture(core)
+	var glow_radius := clampf(float(segment.get("glowRadius", segment.get("glow_radius", 16.0))), 0.0, 60.0)
+	var core_texture_height := float(core_texture.get_height()) if core_texture != null else maxf(1.0, float((core.get("texture", {}) as Dictionary).get("height", 256)))
 	material.set_shader_parameter("trail_texture", texture)
 	material.set_shader_parameter("trail_color", Color.from_string(String(segment.get("color", "#d9364a")), Color(0.85, 0.15, 0.22, 1.0)))
+	material.set_shader_parameter("invert_texture", bool(segment.get("invertTexture", false)))
 	var color_mode := String(segment.get("colorMode", "solid"))
 	material.set_shader_parameter("use_original_color", color_mode == "original")
 	material.set_shader_parameter("use_gradient", color_mode == "gradient")
 	material.set_shader_parameter("trail_gradient", _gradient_texture(segment))
 	material.set_shader_parameter("alpha_gain", 1.0)
+	material.set_shader_parameter("body_opacity_floor", clampf(float(segment.get("bodyOpacityFloor", segment.get("body_opacity_floor", 0.0))), 0.0, 1.0))
+	material.set_shader_parameter("body_detail_strength", clampf(float(segment.get("bodyDetailStrength", segment.get("body_detail_strength", 1.0))), 0.0, 1.0))
+	material.set_shader_parameter("body_white_threshold", clampf(float(segment.get("bodyWhiteThreshold", segment.get("body_white_threshold", 1.0))), 0.0, 1.0))
 	material.set_shader_parameter("tail_fade_start", clampf(float(segment.get("tailFadeStart", 0.6)), 0.0, 0.95))
+	material.set_shader_parameter("breakup_texture", breakup_texture)
+	material.set_shader_parameter("enable_breakup", _material_enabled(breakup) and breakup_texture != null)
+	material.set_shader_parameter("breakup_strength", clampf(float(breakup.get("strength", 0.72)), 0.0, 1.0))
+	material.set_shader_parameter("invert_breakup", bool(breakup.get("invert", false)))
+	material.set_shader_parameter("breakup_threshold", clampf(float(breakup.get("threshold", 0.0)), 0.0, 1.0))
+	material.set_shader_parameter("breakup_softness", clampf(float(breakup.get("softness", 0.0)), 0.0, 1.0))
+	material.set_shader_parameter("breakup_expansion", clampf(float(breakup.get("expansion", 0.0)), 0.0, 0.12))
+	material.set_shader_parameter("streaks_texture", streaks_texture)
+	material.set_shader_parameter("enable_streaks", _material_enabled(streaks) and streaks_texture != null)
+	material.set_shader_parameter("streaks_color", Color.from_string(String(streaks.get("color", "#e93f73")), Color(0.91, 0.25, 0.45, 1.0)))
+	material.set_shader_parameter("streaks_strength", clampf(float(streaks.get("strength", 0.46)), 0.0, 2.0))
+	material.set_shader_parameter("streaks_blend_mode", _blend_mode_id(String(streaks.get("blendMode", "screen"))))
+	material.set_shader_parameter("invert_streaks", bool(streaks.get("invert", false)))
+	material.set_shader_parameter("streaks_threshold", clampf(float(streaks.get("threshold", 0.0)), 0.0, 1.0))
+	material.set_shader_parameter("streaks_softness", clampf(float(streaks.get("softness", 0.0)), 0.0, 1.0))
+	material.set_shader_parameter("streaks_expansion", clampf(float(streaks.get("expansion", 0.0)), 0.0, 0.12))
+	material.set_shader_parameter("core_texture", core_texture)
+	material.set_shader_parameter("enable_core", _material_enabled(core) and core_texture != null)
+	material.set_shader_parameter("core_color", Color.from_string(String(core.get("color", "#ffe7ee")), Color(1.0, 0.91, 0.93, 1.0)))
+	material.set_shader_parameter("core_strength", clampf(float(core.get("strength", 1.05)), 0.0, 2.0))
+	material.set_shader_parameter("core_blend_mode", _blend_mode_id(String(core.get("blendMode", "add"))))
+	material.set_shader_parameter("invert_core", bool(core.get("invert", false)))
+	material.set_shader_parameter("core_edge_mode", _core_edge_id(String(segment.get("coreEdge", segment.get("core_edge", "top")))))
+	material.set_shader_parameter("glow_color", Color.from_string(String(segment.get("glowColor", segment.get("glow_color", "#ff2d6a"))), Color(1.0, 0.18, 0.42, 1.0)))
+	material.set_shader_parameter("glow_strength", clampf(float(segment.get("glowStrength", segment.get("glow_strength", 0.28))), 0.0, 3.0))
+	material.set_shader_parameter("glow_radius_uv", glow_radius / maxf(1.0, core_texture_height))
+	material.set_shader_parameter("head_light_boost", clampf(float(segment.get("headLightBoost", segment.get("head_light_boost", 0.55))), 0.0, 2.0))
+	material.set_shader_parameter("head_white_preserve", clampf(float(segment.get("headWhitePreserve", segment.get("head_white_preserve", 0.0))), 0.0, 1.0))
+	material.set_shader_parameter("head_white_length", clampf(float(segment.get("headWhiteLength", segment.get("head_white_length", 0.18))), 0.0, 0.5))
+
+
+func _material_layer(segment: Dictionary, layer_id: String) -> Dictionary:
+	var layers: Dictionary = segment.get("materialLayers", segment.get("material_layers", {})) if segment.get("materialLayers", segment.get("material_layers", {})) is Dictionary else {}
+	var layer: Variant = layers.get(layer_id, {})
+	return layer if layer is Dictionary else {}
+
+
+func _material_texture(layer: Dictionary) -> Texture2D:
+	var texture_data: Dictionary = layer.get("texture", {}) if layer.get("texture", {}) is Dictionary else {}
+	var texture_path := String(texture_data.get("path", ""))
+	return load(texture_path) as Texture2D if texture_path != "" else null
+
+
+func _material_enabled(layer: Dictionary) -> bool:
+	return not layer.is_empty() and layer.get("enabled", true) != false
+
+
+func _blend_mode_id(value: String) -> int:
+	match value.to_lower():
+		"normal":
+			return 0
+		"screen":
+			return 2
+		"multiply":
+			return 3
+		_:
+			return 1
+
+
+func _core_edge_id(value: String) -> int:
+	match value.to_lower():
+		"bottom":
+			return 1
+		"both":
+			return 2
+		_:
+			return 0
 
 
 func _gradient_texture(segment: Dictionary) -> GradientTexture1D:
@@ -141,70 +223,82 @@ func _update_renderer(state: Dictionary, segment: Dictionary, animation_name: St
 		_rebuild_path_cache(state, segment, animation_name)
 		state["signature"] = signature
 		state["last_sample_time"] = -1.0
+		state["last_frame"] = -1
 		_apply_material(state.get("material") as ShaderMaterial, segment)
+	var current_frame := int(actor.get("_current_frame"))
 	if String(state.get("last_animation", "")) == animation_name \
+			and int(state.get("last_frame", -1)) == current_frame \
 			and is_equal_approx(float(state.get("last_sample_time", -1.0)), animation_time_s):
 		return
 	state["last_animation"] = animation_name
 	state["last_sample_time"] = animation_time_s
+	state["last_frame"] = current_frame
 	var times: PackedFloat32Array = state.get("times", PackedFloat32Array())
 	if times.size() < 2:
 		node.visible = false
+		return
+	var frame_slices_value: Variant = segment.get("frameSlices", segment.get("frame_slices", null))
+	if frame_slices_value is Dictionary:
+		var frame_slices: Dictionary = frame_slices_value
+		var slice_value: Variant = frame_slices.get(str(current_frame), null)
+		if not slice_value is Dictionary:
+			node.visible = false
+			return
+		var frame_slice: Dictionary = slice_value
+		if frame_slice.get("enabled", true) == false:
+			node.visible = false
+			return
+		var tail_progress := clampf(float(frame_slice.get("tailProgress", frame_slice.get("tail_progress", 0.0))), 0.0, 1.0)
+		var head_progress := clampf(float(frame_slice.get("headProgress", frame_slice.get("head_progress", 1.0))), 0.0, 1.0)
+		if tail_progress > head_progress:
+			var swap := tail_progress
+			tail_progress = head_progress
+			head_progress = swap
+		var path_total := float(state.get("path_total", 0.0))
+		var current_distance := path_total * head_progress
+		var tail_distance := path_total * tail_progress
+		if current_distance - tail_distance <= 0.01:
+			node.visible = false
+			return
+		var current_path_time := _local_time_at_distance(state, current_distance)
+		var tail_distances := PackedFloat32Array()
+		for _row in range(maxi(4, int(segment.get("tailSamples", 5)))):
+			tail_distances.append(tail_distance)
+		node.visible = _rebuild_mesh(state, segment, current_distance, current_path_time, tail_distances, 0.0)
 		return
 	var local_time := animation_time_s - times[0]
 	if local_time < 0.0:
 		node.visible = false
 		return
-	var motion_duration := maxf(0.0001, times[-1] - times[0])
-	var path_total := float(state.get("path_total", 0.0))
-	var current_time := minf(local_time, motion_duration)
-	var current_distance := _distance_at_local_time(state, current_time)
-	var catch_elapsed := maxf(0.0, local_time - motion_duration)
-	var speeds: PackedFloat32Array = state.get("speeds", PackedFloat32Array())
-	var before_multiplier: float = _chase_multiplier(segment, true)
-	var after_multiplier: float = _chase_multiplier(segment, false)
-	var average_front_speed: float = path_total / motion_duration
-	var last_arrival := times[-1]
-	var animation_end := float(actor.call("animation_duration", animation_name))
-	var last_playable_frame_start := animation_end
-	if actor.has_method("animation_last_playable_frame_start"):
-		last_playable_frame_start = float(actor.call("animation_last_playable_frame_start", animation_name))
-	var finish_at := animation_end
-	if last_playable_frame_start > last_arrival + 0.0001:
-		finish_at = last_playable_frame_start
-	finish_at = maxf(last_arrival + 0.0001, finish_at)
-	var forced_finish_local := maxf(motion_duration + 0.0001, finish_at - times[0])
-	if local_time >= forced_finish_local:
+	var motion_duration := maxf(0.000001, float(state.get("motion_duration", times[-1] - times[0])))
+	var total_duration := maxf(motion_duration, float(state.get("total_duration", motion_duration)))
+	if local_time >= total_duration:
 		node.visible = false
 		return
-	var forced_phase := clampf((local_time - motion_duration) / maxf(0.0001, forced_finish_local - motion_duration), 0.0, 1.0)
-	var forced_distance := current_distance * forced_phase * forced_phase * (3.0 - 2.0 * forced_phase)
+	var path_total := float(state.get("path_total", 0.0))
+	var current_time := minf(local_time, motion_duration)
+	var current_path_time := _head_path_time(sticks, state.get("local_times", PackedFloat32Array()), current_time)
+	var current_distance := _distance_at_local_time(state, current_path_time)
+	var speeds: PackedFloat32Array = state.get("speeds", PackedFloat32Array())
+	var tail_duration := maxf(0.000001, total_duration - motion_duration)
+	var tail_progress := clampf((local_time - motion_duration) / tail_duration, 0.0, 1.0)
+	var collapse_phase := tail_progress
 	var tail_distances := PackedFloat32Array()
 	for speed_factor_value in speeds:
-		# Chase is longitudinal compression of the whole brush. Width samples
-		# supply only a restrained stable wobble, never independent edge motion.
 		var speed_factor: float = 1.0 + (float(speed_factor_value) - 1.0) * TAIL_WIDTH_SPEED_INFLUENCE
-		var progress_multiplier: float = clampf(1.0 - (1.0 - before_multiplier) * speed_factor, 0.0, 1.0)
-		var tail_distance: float = current_distance * progress_multiplier
-		if catch_elapsed > 0.0:
-			tail_distance = path_total * progress_multiplier
-			tail_distance += average_front_speed * after_multiplier * speed_factor * catch_elapsed
-		tail_distance = maxf(tail_distance, forced_distance)
-		tail_distances.append(minf(current_distance, tail_distance))
+		var endpoint_safe_wobble := (speed_factor - 1.0) * 4.0 * tail_progress * (1.0 - tail_progress)
+		var sample_tail_progress := clampf(tail_progress + endpoint_safe_wobble, 0.0, 1.0)
+		tail_distances.append(minf(current_distance, path_total * sample_tail_progress))
 	tail_distances = _guard_tail_edge_progress(tail_distances)
 	if current_distance <= 0.01:
 		node.visible = false
 		return
-	var cap_catch_duration := motion_duration * maxf(0.0, 1.0 - before_multiplier) / maxf(0.0001, after_multiplier)
-	if local_time > motion_duration + cap_catch_duration + 0.05:
-		node.visible = false
-		return
 	node.visible = true
 	if node.visible:
-		node.visible = _rebuild_mesh(state, segment, current_distance, tail_distances, catch_elapsed)
+		node.visible = _rebuild_mesh(state, segment, current_distance, current_path_time, tail_distances, collapse_phase)
 
 
-func _chase_multiplier(segment: Dictionary, before: bool) -> float:
+func _legacy_chase_multiplier(segment: Dictionary, before: bool) -> float:
 	var key: String = "beforeStopChaseMultiplier" if before else "afterStopChaseMultiplier"
 	var snake_key: String = "before_stop_chase_multiplier" if before else "after_stop_chase_multiplier"
 	var fallback: float = DEFAULT_BEFORE_CHASE_MULTIPLIER if before else DEFAULT_AFTER_CHASE_MULTIPLIER
@@ -221,6 +315,39 @@ func _chase_multiplier(segment: Dictionary, before: bool) -> float:
 	return clampf(legacy_value / legacy_default * fallback, minimum, maximum)
 
 
+func _tail_head_speed_ratio(segment: Dictionary) -> float:
+	if segment.has("tailHeadSpeedRatio"):
+		return clampf(float(segment.get("tailHeadSpeedRatio", DEFAULT_TAIL_HEAD_SPEED_RATIO)), 0.01, 0.9)
+	if segment.has("tail_head_speed_ratio"):
+		return clampf(float(segment.get("tail_head_speed_ratio", DEFAULT_TAIL_HEAD_SPEED_RATIO)), 0.01, 0.9)
+	var has_legacy_timing := segment.has("beforeStopChaseMultiplier") \
+		or segment.has("before_stop_chase_multiplier") \
+		or segment.has("afterStopChaseMultiplier") \
+		or segment.has("after_stop_chase_multiplier") \
+		or segment.has("beforeStopChaseSpeed") \
+		or segment.has("before_stop_chase_speed") \
+		or segment.has("afterStopChaseSpeed") \
+		or segment.has("after_stop_chase_speed")
+	if not has_legacy_timing:
+		return DEFAULT_TAIL_HEAD_SPEED_RATIO
+	var before := _legacy_chase_multiplier(segment, true)
+	var after := _legacy_chase_multiplier(segment, false)
+	return clampf(1.0 / (1.0 + maxf(0.0, 1.0 - before) / maxf(0.0001, after)), 0.01, 0.9)
+
+
+func _total_duration_s(segment: Dictionary, animation_name: String, sticks: Array) -> float:
+	var saved_ms := float(segment.get("totalDurationMs", segment.get("total_duration_ms", 0.0)))
+	if saved_ms > 0.0:
+		return clampf(saved_ms / 1000.0, 0.001, 60.0)
+	if sticks.is_empty():
+		return 1.0 / 12.0
+	var first_stick: Dictionary = sticks[0] if sticks[0] is Dictionary else {}
+	var frame := int(first_stick.get("frame", 0))
+	if actor.has_method("trail_frame_duration"):
+		return clampf(float(actor.call("trail_frame_duration", animation_name, frame)), 0.001, 60.0)
+	return 1.0 / 12.0
+
+
 func _timing_signature(segment: Dictionary, animation_name: String) -> String:
 	var parts: PackedStringArray = []
 	for stick_value in segment.get("sticks", []) as Array:
@@ -231,26 +358,73 @@ func _timing_signature(segment: Dictionary, animation_name: String) -> String:
 		parts.append("%d:%.6f:%.6f" % [frame, float(stick.get("framePhase", 0.5)), float(actor.call("trail_frame_arrival_time", animation_name, frame, float(stick.get("framePhase", 0.5))))])
 	parts.append(JSON.stringify(segment.get("sticks", [])))
 	parts.append(str(segment.get("tailSamples", 5)))
+	parts.append(str(segment.get("widthMode", segment.get("width_mode", "authored"))))
+	parts.append(str(segment.get("fixedWidth", segment.get("fixed_width", 160.0))))
+	parts.append(str(segment.get("widthScale", segment.get("width_scale", 1.0))))
+	parts.append(str(segment.get("widthOffset", segment.get("width_offset", 0.0))))
+	parts.append(str(segment.get("widthChaseStrength", segment.get("width_chase_strength", 1.0))))
+	parts.append(str(segment.get("pathScaleX", segment.get("path_scale_x", 1.0))))
+	parts.append(str(segment.get("pathScaleY", segment.get("path_scale_y", 1.0))))
 	parts.append(str(segment.get("stableSeed", 73129)))
 	parts.append(str(segment.get("tailFadeStart", 0.6)))
+	parts.append(str(segment.get("totalDurationMs", segment.get("total_duration_ms", 0))))
+	parts.append(str(_tail_head_speed_ratio(segment)))
+	parts.append(str(_total_duration_s(segment, animation_name, segment.get("sticks", []) as Array)))
 	return "|".join(parts)
 
 
 func _rebuild_path_cache(state: Dictionary, segment: Dictionary, animation_name: String) -> void:
 	var sticks: Array = segment.get("sticks", []) as Array
-	var absolute_times := PackedFloat32Array()
+	var head_indices := PackedInt32Array()
+	var head_times := PackedFloat32Array()
 	var previous_time := -1.0
-	for stick_value in sticks:
+	for stick_index in range(sticks.size()):
+		var stick_value: Variant = sticks[stick_index]
 		var stick: Dictionary = stick_value if stick_value is Dictionary else {}
+		if not _stick_is_head_frame(stick):
+			continue
 		var arrival := float(actor.call("trail_frame_arrival_time", animation_name, int(stick.get("frame", 0)), float(stick.get("framePhase", 0.5))))
 		arrival = maxf(arrival, previous_time + 0.0001)
-		absolute_times.append(arrival)
+		head_indices.append(stick_index)
+		head_times.append(arrival)
 		previous_time = arrival
+	if not sticks.is_empty() and (head_indices.is_empty() or head_indices[0] != 0):
+		var first_stick: Dictionary = sticks[0] if sticks[0] is Dictionary else {}
+		head_indices.insert(0, 0)
+		head_times.insert(0, float(actor.call("trail_frame_arrival_time", animation_name, int(first_stick.get("frame", 0)), float(first_stick.get("framePhase", 0.5)))))
+	if sticks.size() > 1 and head_indices[-1] != sticks.size() - 1:
+		head_indices.append(sticks.size() - 1)
+		var last_stick: Dictionary = sticks[-1] if sticks[-1] is Dictionary else {}
+		head_times.append(maxf(float(actor.call("trail_frame_arrival_time", animation_name, int(last_stick.get("frame", 0)), float(last_stick.get("framePhase", 0.5)))), head_times[-1] + 0.0001))
+	var authored_origin := head_times[0] if not head_times.is_empty() else 0.0
+	var lifecycle_first_stick: Dictionary = sticks[0] if not sticks.is_empty() and sticks[0] is Dictionary else {}
+	var origin := float(actor.call("trail_frame_arrival_time", animation_name, int(lifecycle_first_stick.get("frame", 0)), 0.0))
+	var total_duration := _total_duration_s(segment, animation_name, sticks)
+	var speed_ratio := _tail_head_speed_ratio(segment)
+	var motion_duration := maxf(0.000001, total_duration * speed_ratio / (1.0 + speed_ratio))
+	var authored_span := maxf(0.0001, head_times[-1] - authored_origin)
+	var head_local_times := PackedFloat32Array()
+	for head_index in range(head_times.size()):
+		if head_index == head_times.size() - 1:
+			head_local_times.append(motion_duration)
+		else:
+			head_local_times.append(motion_duration * clampf((head_times[head_index] - authored_origin) / authored_span, 0.0, 1.0))
 	var local_times := PackedFloat32Array()
-	for absolute_time in absolute_times:
-		local_times.append(absolute_time - absolute_times[0])
+	local_times.resize(sticks.size())
+	local_times.fill(head_local_times[0] if not head_local_times.is_empty() else 0.0)
+	for head_index in range(head_indices.size() - 1):
+		var start_index := head_indices[head_index]
+		var end_index := head_indices[head_index + 1]
+		for stick_index in range(start_index, end_index + 1):
+			var phase := float(stick_index - start_index) / float(maxi(1, end_index - start_index))
+			local_times[stick_index] = lerpf(head_local_times[head_index], head_local_times[head_index + 1], phase)
+	var absolute_times := PackedFloat32Array()
+	for local_time in local_times:
+		absolute_times.append(origin + local_time)
 	state["times"] = absolute_times
 	state["local_times"] = local_times
+	state["motion_duration"] = motion_duration
+	state["total_duration"] = total_duration
 	var sample_count := maxi(32, int(segment.get("pathCacheSamples", 192)))
 	var path_times := PackedFloat32Array()
 	var path_distances := PackedFloat32Array()
@@ -283,6 +457,28 @@ func _rebuild_path_cache(state: Dictionary, segment: Dictionary, animation_name:
 	for index in range(speeds.size()):
 		speeds[index] /= speed_mean
 	state["speeds"] = speeds
+
+
+func _stick_is_head_frame(stick: Dictionary) -> bool:
+	if stick.has("headFrame"):
+		return stick.get("headFrame", true) != false
+	if stick.has("head_frame"):
+		return stick.get("head_frame", true) != false
+	return true
+
+
+func _head_path_time(sticks: Array, times: PackedFloat32Array, local_time: float) -> float:
+	if sticks.is_empty() or times.is_empty():
+		return 0.0
+	var result := times[0]
+	for index in range(mini(sticks.size(), times.size())):
+		var stick: Dictionary = sticks[index] if sticks[index] is Dictionary else {}
+		if not _stick_is_head_frame(stick):
+			continue
+		if times[index] > local_time + 0.000001:
+			break
+		result = times[index]
+	return result
 
 
 func _distance_at_local_time(state: Dictionary, local_time: float) -> float:
@@ -412,13 +608,23 @@ func _layer_at_local_time(sticks: Array, times: PackedFloat32Array, local_time: 
 	return String((sticks[selected_index] as Dictionary).get("layer", fallback))
 
 
+func _triangle_touches_layer(sticks: Array, times: PackedFloat32Array, sample_times: PackedFloat32Array, triangle: PackedInt32Array, fallback: String) -> bool:
+	# Keep the one mesh cell that crosses a layer boundary in both render
+	# passes. The tiny overlap closes the seam without moving the rest of a
+	# behind trail in front of the character.
+	for vertex_index in triangle:
+		if _layer_at_local_time(sticks, times, sample_times[vertex_index], fallback) == layer_name:
+			return true
+	return false
+
+
 func _hermite(start: Vector2, start_tangent: Vector2, end: Vector2, end_tangent: Vector2, t: float) -> Vector2:
 	var t2 := t * t
 	var t3 := t2 * t
 	return (2.0 * t3 - 3.0 * t2 + 1.0) * start + (t3 - 2.0 * t2 + t) * start_tangent + (-2.0 * t3 + 3.0 * t2) * end + (t3 - t2) * end_tangent
 
 
-func _rebuild_mesh(state: Dictionary, segment: Dictionary, current_distance: float, tail_distances: PackedFloat32Array, catch_elapsed: float) -> bool:
+func _rebuild_mesh(state: Dictionary, segment: Dictionary, current_distance: float, current_time: float, tail_distances: PackedFloat32Array, collapse_phase: float) -> bool:
 	var mesh: ArrayMesh = state.get("mesh") as ArrayMesh
 	var sticks: Array = segment.get("sticks", []) as Array
 	var local_times: PackedFloat32Array = state.get("local_times", PackedFloat32Array())
@@ -426,33 +632,59 @@ func _rebuild_mesh(state: Dictionary, segment: Dictionary, current_distance: flo
 		return false
 	# Chase samples control lag, not visible tessellation. A five-row mesh makes
 	# an otherwise curved leading edge read as a diamond-shaped point.
-	var row_count: int = maxi(TRAIL_MESH_WIDTH_ROWS, tail_distances.size())
+	var body_row_count: int = maxi(TRAIL_MESH_WIDTH_ROWS, tail_distances.size())
+	var glow_padding := _glow_padding(segment)
+	var glow_uv_padding := _glow_uv_padding(segment)
+	var glow_margin_rows := GLOW_MARGIN_ROWS if glow_padding > 0.0 and glow_uv_padding > 0.0 else 0
+	var row_count: int = body_row_count + glow_margin_rows * 2
 	var column_count := clampi(maxi(16, int(segment.get("pathColumns", DEFAULT_PATH_COLUMNS)) * 2), 16, 192)
 	var vertices := PackedVector2Array()
 	var uvs := PackedVector2Array()
 	var sample_times := PackedFloat32Array()
 	var indices := PackedInt32Array()
-	var current_time := _local_time_at_distance(state, current_distance)
-	var current_pose := _pose_at_local_time(sticks, local_times, current_time)
-	var head_direction := _direction_at_local_time(sticks, local_times, current_time)
+	var path_pivot := _path_pivot(sticks)
+	var current_pose := _styled_width_pose(
+		_styled_path_pose(
+			_pose_at_local_time(sticks, local_times, current_time),
+			segment,
+			path_pivot
+		),
+		segment
+	)
+	var raw_head_direction := _direction_at_local_time(sticks, local_times, current_time)
+	var scaled_head_direction := Vector2(
+		raw_head_direction.x * clampf(float(segment.get("pathScaleX", segment.get("path_scale_x", 1.0))), 0.25, 3.0),
+		raw_head_direction.y * clampf(float(segment.get("pathScaleY", segment.get("path_scale_y", 1.0))), 0.25, 3.0)
+	)
+	var head_direction := scaled_head_direction.normalized()
 	var head_half_width := Vector2(current_pose["top"]).distance_to(Vector2(current_pose["bottom"])) * 0.5
 	var head_curvature := float(segment.get("headCurvature", 0.0))
-	var terminal_cap_depth := maxf(2.0, head_half_width * (absf(head_curvature) + FINAL_HEAD_CAP_MARGIN_RATIO))
-	var terminal_cap_blend := _terminal_head_cap_blend(current_distance, tail_distances, terminal_cap_depth, catch_elapsed)
+	var terminal_cap_depth := maxf(2.0, head_half_width * (absf(head_curvature) + FINAL_HEAD_CAP_MARGIN_RATIO)) * (1.0 - collapse_phase)
+	var terminal_cap_blend := _terminal_head_cap_blend(current_distance, tail_distances, terminal_cap_depth, collapse_phase)
+	var center_tail_distance := _mesh_tail_distance(tail_distances, 0.5)
+	var width_chase_strength := clampf(float(segment.get("widthChaseStrength", segment.get("width_chase_strength", 1.0))), 0.0, 1.0)
 	for row in range(row_count):
-		var v := float(row) / float(row_count - 1)
-		var tail_distance: float = _mesh_tail_distance(tail_distances, v)
+		var v := _mesh_v(row, body_row_count, glow_margin_rows, glow_uv_padding)
+		var authored_tail_distance: float = _mesh_tail_distance(tail_distances, v)
+		var tail_distance := lerpf(center_tail_distance, authored_tail_distance, width_chase_strength)
 		for column in range(column_count):
 			var u := float(column) / float(column_count - 1)
 			var sample_distance := lerpf(current_distance, tail_distance, u)
 			var sample_time := _local_time_at_distance(state, sample_distance)
-			var pose := _pose_at_local_time(sticks, local_times, sample_time)
-			var point := Vector2(pose["top"]).lerp(Vector2(pose["bottom"]), v)
+			var pose := _styled_width_pose(
+				_styled_path_pose(
+					_pose_at_local_time(sticks, local_times, sample_time),
+					segment,
+					path_pivot
+				),
+				segment
+			)
+			var point := _width_point(pose, v, glow_padding, glow_uv_padding)
 			var head_profile: float = _head_curve_profile(v) * _head_curve_blend(u)
 			var bulge := head_curvature * head_half_width * head_profile
 			point -= head_direction * bulge
 			if terminal_cap_blend > 0.0:
-				var cap_base := Vector2(current_pose["top"]).lerp(Vector2(current_pose["bottom"]), v)
+				var cap_base := _width_point(current_pose, v, glow_padding, glow_uv_padding)
 				var cap_point := cap_base - head_direction * (bulge + terminal_cap_depth * u)
 				point = point.lerp(cap_point, terminal_cap_blend)
 				if terminal_cap_blend >= 0.5:
@@ -470,8 +702,7 @@ func _rebuild_mesh(state: Dictionary, segment: Dictionary, current_distance: flo
 			var second := PackedInt32Array([top_left, bottom_right, bottom_left])
 			for triangle_value in [first, second]:
 				var triangle: PackedInt32Array = triangle_value
-				var triangle_time := (sample_times[triangle[0]] + sample_times[triangle[1]] + sample_times[triangle[2]]) / 3.0
-				if _layer_at_local_time(sticks, local_times, triangle_time, String(segment.get("layer", "behind"))) == layer_name:
+				if _triangle_touches_layer(sticks, local_times, sample_times, triangle, String(segment.get("layer", "behind"))):
 					indices.append_array(triangle)
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
@@ -483,6 +714,91 @@ func _rebuild_mesh(state: Dictionary, segment: Dictionary, current_distance: flo
 		return false
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return true
+
+
+func _glow_padding(segment: Dictionary) -> float:
+	var core := _material_layer(segment, "core")
+	if not _material_enabled(core):
+		return 0.0
+	if float(segment.get("glowStrength", segment.get("glow_strength", 0.28))) <= 0.0:
+		return 0.0
+	return clampf(float(segment.get("glowRadius", segment.get("glow_radius", 16.0))), 0.0, 60.0)
+
+
+func _glow_uv_padding(segment: Dictionary) -> float:
+	var core := _material_layer(segment, "core")
+	var texture_data: Dictionary = core.get("texture", {}) if core.get("texture", {}) is Dictionary else {}
+	var texture_height := maxf(1.0, float(texture_data.get("height", 256)))
+	return minf(0.45, _glow_padding(segment) / texture_height)
+
+
+func _mesh_v(row: int, body_row_count: int, margin_rows: int, uv_padding: float) -> float:
+	if margin_rows <= 0:
+		return float(row) / float(maxi(1, body_row_count - 1))
+	if row < margin_rows:
+		return -uv_padding * float(margin_rows - row) / float(margin_rows)
+	if row >= margin_rows + body_row_count:
+		return 1.0 + uv_padding * float(row - (margin_rows + body_row_count) + 1) / float(margin_rows)
+	return float(row - margin_rows) / float(maxi(1, body_row_count - 1))
+
+
+func _width_point(pose: Dictionary, v: float, padding: float, uv_padding: float) -> Vector2:
+	var top := Vector2(pose["top"])
+	var bottom := Vector2(pose["bottom"])
+	var point := top.lerp(bottom, clampf(v, 0.0, 1.0))
+	if uv_padding <= 0.000001 or (v >= 0.0 and v <= 1.0):
+		return point
+	var axis := (bottom - top).normalized()
+	if v < 0.0:
+		return point - axis * padding * minf(1.0, -v / uv_padding)
+	return point + axis * padding * minf(1.0, (v - 1.0) / uv_padding)
+
+
+func _styled_width_pose(pose: Dictionary, segment: Dictionary) -> Dictionary:
+	var top := Vector2(pose["top"])
+	var bottom := Vector2(pose["bottom"])
+	var center := Vector2(pose["center"])
+	var delta := bottom - top
+	var authored_width := maxf(0.001, delta.length())
+	var axis := delta / authored_width
+	var width_mode := String(segment.get("widthMode", segment.get("width_mode", "authored")))
+	var base_width := clampf(float(segment.get("fixedWidth", segment.get("fixed_width", 160.0))), 8.0, 600.0) if width_mode == "fixed" else authored_width
+	var width_scale := clampf(float(segment.get("widthScale", segment.get("width_scale", 1.0))), 0.1, 3.0)
+	var width := maxf(0.001, base_width * width_scale)
+	var width_offset := clampf(float(segment.get("widthOffset", segment.get("width_offset", 0.0))), -1.0, 1.0)
+	center += axis * width * 0.5 * width_offset
+	return {
+		"top": center - axis * width * 0.5,
+		"bottom": center + axis * width * 0.5,
+		"center": center,
+	}
+
+
+func _path_pivot(sticks: Array) -> Vector2:
+	if sticks.is_empty():
+		return Vector2.ZERO
+	var total := Vector2.ZERO
+	var count := 0
+	for stick_value in sticks:
+		if not stick_value is Dictionary:
+			continue
+		var pose := _stick_pose(stick_value as Dictionary)
+		total += Vector2(pose["center"])
+		count += 1
+	return total / float(maxi(1, count))
+
+
+func _styled_path_pose(pose: Dictionary, segment: Dictionary, pivot: Vector2) -> Dictionary:
+	var scale_x := clampf(float(segment.get("pathScaleX", segment.get("path_scale_x", 1.0))), 0.25, 3.0)
+	var scale_y := clampf(float(segment.get("pathScaleY", segment.get("path_scale_y", 1.0))), 0.25, 3.0)
+	var top := Vector2(pose["top"])
+	var bottom := Vector2(pose["bottom"])
+	var center := Vector2(pose["center"])
+	return {
+		"top": Vector2(pivot.x + (top.x - pivot.x) * scale_x, pivot.y + (top.y - pivot.y) * scale_y),
+		"bottom": Vector2(pivot.x + (bottom.x - pivot.x) * scale_x, pivot.y + (bottom.y - pivot.y) * scale_y),
+		"center": Vector2(pivot.x + (center.x - pivot.x) * scale_x, pivot.y + (center.y - pivot.y) * scale_y),
+	}
 
 
 func _mesh_tail_distance(tail_distances: PackedFloat32Array, v: float) -> float:
@@ -509,8 +825,8 @@ func _guard_tail_edge_progress(tail_distances: PackedFloat32Array) -> PackedFloa
 	return tail_distances
 
 
-func _terminal_head_cap_blend(current_distance: float, tail_distances: PackedFloat32Array, cap_depth: float, catch_elapsed: float) -> float:
-	if catch_elapsed <= 0.0:
+func _terminal_head_cap_blend(current_distance: float, tail_distances: PackedFloat32Array, cap_depth: float, collapse_phase: float) -> float:
+	if collapse_phase <= 0.0 or cap_depth <= 0.001:
 		return 0.0
 	var maximum_lag := 0.0
 	for tail_distance in tail_distances:

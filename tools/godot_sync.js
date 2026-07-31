@@ -188,7 +188,7 @@ function assignStableFrameBindingKey(entry, sourceBinding, index) {
   return entry;
 }
 
-function syncFrameAudio(projectStore, project, bindingsInput = null) {
+function syncFrameAudio(root, projectStore, project, bindingsInput = null) {
   const projectRoot = validGodotProjectRoot(project);
   if (!projectRoot) return { audioCount: 0, copiedAudio: 0 };
   const paths = projectStore.projectPaths(project);
@@ -214,10 +214,19 @@ function syncFrameAudio(projectStore, project, bindingsInput = null) {
       copiedAudio += 1;
       next.path = `res://${audioRel}`;
       next.type = next.type || data.mime;
-    } else if (binding.path) {
-      next.path = String(binding.path);
-    } else if (binding.file) {
-      next.path = String(binding.file);
+    } else if (binding.path || binding.file) {
+      const requested = String(binding.path || binding.file);
+      const source = sourcePathForFrame(root, projectRoot, requested);
+      if (source && !requested.startsWith("res://")) {
+        const key = sanitizeSegment(frameAudioKey(binding, index), `audio_${index + 1}`);
+        const ext = audioExtension(binding);
+        const audioRel = godotProjectRelPath("audio", "projects", project.id, `${key}${ext}`);
+        const target = path.join(projectRoot, audioRel);
+        if (copyFileIfChanged(source, target)) copiedAudio += 1;
+        next.path = `res://${audioRel}`;
+      } else {
+        next.path = requested;
+      }
     }
     if (next.path) localBindings.push(assignStableFrameBindingKey(next, binding, index));
   });
@@ -266,11 +275,13 @@ function syncAttackTrails(root, projectStore, project, trailsInput = null) {
   const paths = projectStore.projectPaths(project);
   const raw = trailsInput ?? projectStore.readJson(paths.attackTrails, EMPTY_ATTACK_TRAILS);
   const local = normalizeAttackTrails(cloneAttackTrails(raw));
+  local.presets = [];
   let attackTrailCount = 0;
   let copiedAttackTrailTextures = 0;
+  const attackTrailTextureErrors = [];
   const presetSource = sourcePathForFrame(root, projectRoot, local.presetTexture?.path);
   if (presetSource && path.extname(presetSource).toLowerCase() === ".png") {
-    const presetHash = String(local.presetTexture.assetHash || fileContentHash(presetSource));
+    const presetHash = fileContentHash(presetSource);
     const presetRel = godotProjectRelPath("attack_trails", "presets", `${presetHash}.png`);
     const presetTarget = path.join(projectRoot, presetRel);
     if (copyFileIfChanged(presetSource, presetTarget)) copiedAttackTrailTextures += 1;
@@ -280,28 +291,48 @@ function syncAttackTrails(root, projectStore, project, trailsInput = null) {
   for (const [bindingKey, segments] of Object.entries(local.bindings)) {
     for (const segment of segments) {
       attackTrailCount += 1;
-      const source = sourcePathForFrame(root, projectRoot, segment.texture?.path);
-      if (!source || path.extname(source).toLowerCase() !== ".png") continue;
-      const hash = String(segment.texture.assetHash || fileContentHash(source));
       const [profileId = "profile", animationId = "animation"] = bindingKey.split("/");
-      const nextRel = godotProjectRelPath(
-        "attack_trails",
-        "projects",
-        project.id,
-        sanitizeSegment(profileId, "profile"),
-        sanitizeSegment(animationId, "animation"),
-        `${hash}.png`
-      );
-      const target = path.join(projectRoot, nextRel);
-      if (copyFileIfChanged(source, target)) copiedAttackTrailTextures += 1;
-      segment.texture.path = `res://${nextRel}`;
-      segment.texture.assetHash = hash;
+      const textures = [
+        { role: "body", texture: segment.texture, required: true },
+        { role: "streaks", texture: segment.materialLayers?.streaks?.texture, required: segment.materialLayers?.streaks?.enabled !== false },
+        { role: "breakup", texture: segment.materialLayers?.breakup?.texture, required: segment.materialLayers?.breakup?.enabled !== false },
+        { role: "core", texture: segment.materialLayers?.core?.texture, required: segment.materialLayers?.core?.enabled !== false },
+      ];
+      for (const entry of textures) {
+        const { texture } = entry;
+        if (!texture || typeof texture !== "object") {
+          if (entry.required) {
+            attackTrailTextureErrors.push(`${bindingKey}/${segment.id || "trail"} ${entry.role}: (missing texture)`);
+          }
+          continue;
+        }
+        const source = sourcePathForFrame(root, projectRoot, texture.path);
+        if (!source || path.extname(source).toLowerCase() !== ".png") {
+          if (entry.required) {
+            attackTrailTextureErrors.push(`${bindingKey}/${segment.id || "trail"} ${entry.role}: ${texture.path || "(empty path)"}`);
+          }
+          continue;
+        }
+        const hash = fileContentHash(source);
+        const nextRel = godotProjectRelPath(
+          "attack_trails",
+          "projects",
+          project.id,
+          sanitizeSegment(profileId, "profile"),
+          sanitizeSegment(animationId, "animation"),
+          `${hash}.png`
+        );
+        const target = path.join(projectRoot, nextRel);
+        if (copyFileIfChanged(source, target)) copiedAttackTrailTextures += 1;
+        texture.path = `res://${nextRel}`;
+        texture.assetHash = hash;
+      }
     }
   }
   const targetFile = path.join(godotDataDir(projectRoot, project), "attack_trails.json");
   fs.mkdirSync(path.dirname(targetFile), { recursive: true });
   fs.writeFileSync(targetFile, `${JSON.stringify(local, null, 2)}\n`, "utf8");
-  return { attackTrailCount, copiedAttackTrailTextures };
+  return { attackTrailCount, copiedAttackTrailTextures, attackTrailTextureErrors };
 }
 
 function syncGodotProject(root, projectStore, project, options = {}) {
@@ -313,12 +344,14 @@ function syncGodotProject(root, projectStore, project, options = {}) {
   const manifestInput = options.manifest || projectStore.readJson(paths.manifest, EMPTY_MANIFEST);
   const manifestResult = syncManifest(root, projectStore, project, manifestInput);
   const tuningResult = syncTuning(projectStore, project, options.tuning);
-  const audioResult = syncFrameAudio(projectStore, project, options.frameAudioBindings);
+  const audioResult = syncFrameAudio(root, projectStore, project, options.frameAudioBindings);
   const imageAttachmentResult = syncFrameImageAttachments(root, projectStore, project, options.frameImageAttachments);
   const attackTrailResult = syncAttackTrails(root, projectStore, project, options.attackTrails);
   const runtimeResult = ensureGodotRuntime(root, project, { manifest: manifestInput });
+  const attackTrailTextureErrors = attackTrailResult.attackTrailTextureErrors || [];
   return {
-    ok: true,
+    ok: attackTrailTextureErrors.length === 0,
+    ...(attackTrailTextureErrors.length ? { reason: `Attack-trail textures could not be synced: ${attackTrailTextureErrors.join("; ")}` } : {}),
     projectRoot,
     dataDir: reslash(path.join(projectRoot, GODOT_SYNC_ROOT, "data", "projects", project.id)),
     assetRoot: reslash(path.join(projectRoot, GODOT_SYNC_ROOT)),

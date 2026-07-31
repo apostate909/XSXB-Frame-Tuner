@@ -6,30 +6,165 @@
   const DIRECTION_HANDLE_UNIT_PX = 57.5;
   const DIRECTION_HANDLE_MIN_STRENGTH = 0.1;
   const DIRECTION_HANDLE_MAX_STRENGTH = 4;
+  const DEFAULT_TAIL_HEAD_SPEED_RATIO = 0.7;
+  const DRAW_PREVIEW_DURATION_MS = 1000;
+  const DRAW_PREVIEW_TAIL_HEAD_SPEED_RATIO = 0.5;
+  const DEFAULT_PATH_COLUMNS = 20;
   const DEFAULT_BEFORE_CHASE_MULTIPLIER = 0.5;
   const DEFAULT_AFTER_CHASE_MULTIPLIER = 2;
-  const DEFAULT_PATH_COLUMNS = 20;
   const LEGACY_BEFORE_CHASE_SPEED = 110;
   const LEGACY_AFTER_CHASE_SPEED = 680;
   const TRAIL_MESH_WIDTH_ROWS = 17;
+  const PREVIEW_TEXTURE_MAX_SIZE = 256;
   const FINAL_HEAD_CAP_MARGIN_RATIO = 0.25;
   const TAIL_ALPHA_EXPONENT = 2.2;
-  const ATTACK_TRAIL_SCHEMA_VERSION = 8;
+  const ATTACK_TRAIL_SCHEMA_VERSION = 21;
+  const DEFAULT_GLOW_STRENGTH = 0.28;
+  const DEFAULT_GLOW_RADIUS = 16;
+  const DEFAULT_HEAD_LIGHT_BOOST = 0.55;
   const PRESET_SEGMENT_ID = "__xsxb_default_attack_trail_preset__";
   const DEFAULT_PRESET_TEXTURE = {
-    path: "tools/animation_tuner/public/presets/attack_trails/dynamic_trail_luma.png",
-    assetHash: "e2b855cdb3c59db8b4ed33f400b03bafd4af7df2636f3fd4d3eb68603763da90",
-    name: "dynamic_trail_luma.png",
+    path: "tools/animation_tuner/public/presets/attack_trails/coherent_trail_body_luma.png",
+    assetHash: "af5fffcb5009c5eb78bc595d85f72f0bd68e310d5f7926e54512d4f39efb1878",
+    name: "coherent_trail_body_luma.png",
     type: "image/png",
-    width: 648,
-    height: 435,
+    width: 256,
+    height: 256,
     hasEffectiveAlpha: false,
+  };
+  const LEGACY_PRESET_TEXTURE_PATH = "tools/animation_tuner/public/presets/attack_trails/dynamic_trail_luma.png";
+  const LEGACY_PRESET_TEXTURE_HASH = "e2b855cdb3c59db8b4ed33f400b03bafd4af7df2636f3fd4d3eb68603763da90";
+  const DEFAULT_MATERIAL_LAYERS = {
+    streaks: {
+      enabled: true,
+      texture: {
+        path: "tools/animation_tuner/public/presets/attack_trails/coherent_breakup_luma.png",
+        assetHash: "1702655ad189266dd598355cfc47afbf42bba34c064e423200b5daa6ae13c760",
+        name: "coherent_breakup_luma.png",
+        type: "image/png",
+        width: 256,
+        height: 256,
+        hasEffectiveAlpha: false,
+      },
+      color: "#e93f73",
+      strength: 0.46,
+      blendMode: "screen",
+      invert: false,
+      threshold: 0,
+      softness: 0,
+      expansion: 0,
+    },
+    breakup: {
+      enabled: true,
+      texture: {
+        path: "tools/animation_tuner/public/presets/attack_trails/coherent_breakup_luma.png",
+        assetHash: "1702655ad189266dd598355cfc47afbf42bba34c064e423200b5daa6ae13c760",
+        name: "coherent_breakup_luma.png",
+        type: "image/png",
+        width: 256,
+        height: 256,
+        hasEffectiveAlpha: false,
+      },
+      color: "#ffffff",
+      strength: 0.72,
+      blendMode: "normal",
+      invert: false,
+      threshold: 0,
+      softness: 0,
+      expansion: 0,
+    },
+    core: {
+      enabled: true,
+      texture: {
+        path: "tools/animation_tuner/public/presets/attack_trails/coherent_outer_glow_luma.png",
+        assetHash: "fc6b0c707f9cbf57aee0efdc7cb985ae2b8191e65e55dcc4644ecbb37972fd33",
+        name: "coherent_outer_glow_luma.png",
+        type: "image/png",
+        width: 256,
+        height: 256,
+        hasEffectiveAlpha: false,
+      },
+      color: "#ffe7ee",
+      strength: 1.05,
+      blendMode: "add",
+      invert: false,
+      threshold: 0,
+      softness: 0,
+      expansion: 0,
+    },
   };
 
   const clone = (value) => JSON.parse(JSON.stringify(value));
+  const PRESET_STYLE_KEYS = [
+    "texture", "invertTexture", "colorMode", "color", "gradientStops", "materialLayers",
+    "bodyOpacityFloor", "bodyDetailStrength", "bodyWhiteThreshold",
+    "coreEdge", "glowColor", "glowStrength", "glowRadius", "headLightBoost", "headWhitePreserve", "headWhiteLength",
+    "widthMode", "fixedWidth", "widthScale", "widthOffset", "widthChaseStrength", "pathScaleX", "pathScaleY",
+    "tailSamples", "pathColumns", "tailFadeStart", "headCurvature",
+  ];
+  const applyAttackTrailPresetStyle = (target, preset) => {
+    if (!target || !preset) return target;
+    for (const key of PRESET_STYLE_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(preset, key)) target[key] = clone(preset[key]);
+    }
+    return target;
+  };
+  const upsertAttackTrailPresetByName = (presets, preset) => {
+    const list = Array.isArray(presets) ? presets : [];
+    const nameKey = String(preset?.name || "").trim().toLocaleLowerCase();
+    const existingIndex = list.findIndex((entry) => (
+      String(entry?.name || "").trim().toLocaleLowerCase() === nameKey
+    ));
+    const next = clone(preset);
+    if (existingIndex >= 0) {
+      next.id = list[existingIndex].id;
+      list[existingIndex] = next;
+      return { preset: next, overwritten: true };
+    }
+    list.push(next);
+    return { preset: next, overwritten: false };
+  };
+  const preferredAttackTrailSegment = (segments = []) => (
+    segments.find((segment) => segment.presetOnly !== true && segment.generated !== false && segment.sticks?.length >= 2)
+    || segments.find((segment) => segment.presetOnly !== true)
+    || segments[0]
+    || null
+  );
+  const resolveAttackTrailContextSegmentId = (currentId, localSegments = [], displayedSegments = []) => {
+    const currentLocal = localSegments.find((segment) => segment.id === currentId);
+    if (currentLocal) return currentLocal.id;
+    const preferredLocal = preferredAttackTrailSegment(localSegments);
+    if (preferredLocal) return preferredLocal.id;
+    const currentDisplayed = displayedSegments.find((segment) => segment.id === currentId);
+    if (currentDisplayed) return currentDisplayed.id;
+    return preferredAttackTrailSegment(displayedSegments)?.id || "";
+  };
+  const normalizeBodyTexture = (value) => {
+    const texture = value && typeof value === "object" ? value : {};
+    const legacyDefault = texture.path === LEGACY_PRESET_TEXTURE_PATH || texture.assetHash === LEGACY_PRESET_TEXTURE_HASH;
+    const canonicalDefault = texture.path === DEFAULT_PRESET_TEXTURE.path;
+    if (!texture.path || legacyDefault || canonicalDefault) return clone(DEFAULT_PRESET_TEXTURE);
+    return {
+      path: String(texture.path || ""),
+      assetHash: String(texture.assetHash || ""),
+      name: String(texture.name || ""),
+      type: String(texture.type || "image/png"),
+      width: Number(texture.width || 0),
+      height: Number(texture.height || 0),
+      hasEffectiveAlpha: texture.hasEffectiveAlpha === true,
+    };
+  };
   const clamp = (value, min, max, fallback = min) => {
     const number = Number(value);
     return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
+  };
+  const smoothstep = (edge0, edge1, value) => {
+    const phase = clamp((value - edge0) / Math.max(0.000001, edge1 - edge0), 0, 1, 0);
+    return phase * phase * (3 - 2 * phase);
+  };
+  const maskResponse = (value, threshold = 0, softness = 0) => {
+    if (softness <= 0.0001) return threshold <= 0.0001 ? value : (value >= threshold ? 1 : 0);
+    return smoothstep(threshold, Math.min(1, threshold + softness), value);
   };
   const point = (value, fallback = { x: 0, y: 0 }) => ({
     x: clamp(value?.x, -100000, 100000, fallback.x),
@@ -37,10 +172,57 @@
   });
   const randomId = (prefix) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
   const normalizeColor = (value, fallback = "#d9364a") => (/^#[0-9a-f]{6}$/i.test(String(value || "")) ? String(value).toLowerCase() : fallback);
+  const normalizeTrailName = (value, index = 0) => {
+    const name = String(value || "").trim();
+    if (!name) return `Trail ${index + 1}`;
+    if (/^\?+$/.test(name) || /[\uE000-\uF8FF\uFFFD]/u.test(name)) return "默认拖尾";
+    return name;
+  };
   const normalizeColorMode = (value) => {
     const mode = String(value || "").toLowerCase();
     if (mode === "original" || mode === "gradient") return mode;
     return "solid";
+  };
+  const normalizeCoreEdge = (value) => {
+    const edge = String(value || "").toLowerCase();
+    return edge === "bottom" || edge === "both" ? edge : "top";
+  };
+  const normalizeBlendMode = (value, fallback = "add") => {
+    const mode = String(value || "").toLowerCase();
+    return ["add", "screen", "normal", "multiply"].includes(mode) ? mode : fallback;
+  };
+  const normalizeMaterialLayers = (value = {}, legacy = {}) => {
+    const source = value && typeof value === "object" ? value : {};
+    const legacyEnabled = legacy.layeredMaterial !== false && legacy.layered_material !== false;
+    const result = {};
+    for (const layerId of ["streaks", "breakup", "core"]) {
+      const defaults = DEFAULT_MATERIAL_LAYERS[layerId];
+      const material = source[layerId] && typeof source[layerId] === "object" ? source[layerId] : {};
+      const canonicalDefault = material.texture?.path === defaults.texture.path;
+      const texture = material.texture?.path && !canonicalDefault
+        ? { ...clone(defaults.texture), ...clone(material.texture) }
+        : clone(defaults.texture);
+      result[layerId] = {
+        enabled: legacyEnabled && material.enabled !== false,
+        texture,
+        color: normalizeColor(
+          material.color ?? (layerId === "core" ? legacy.coreColor ?? legacy.core_color : undefined),
+          defaults.color,
+        ),
+        strength: clamp(
+          material.strength ?? (layerId === "core" ? legacy.coreStrength ?? legacy.core_strength : undefined),
+          0,
+          2,
+          defaults.strength,
+        ),
+        blendMode: normalizeBlendMode(material.blendMode ?? material.blend_mode, defaults.blendMode),
+        invert: material.invert === undefined ? defaults.invert : material.invert === true,
+        threshold: clamp(material.threshold, 0, 1, defaults.threshold),
+        softness: clamp(material.softness, 0, 1, defaults.softness),
+        expansion: clamp(material.expansion, 0, 0.12, defaults.expansion),
+      };
+    }
+    return result;
   };
   const normalizeGradientStops = (value, fallbackColor = "#d9364a") => {
     const stops = (Array.isArray(value) ? value : []).slice(0, 16).map((stop, index) => ({
@@ -56,6 +238,154 @@
   };
   const colorChannels = (value) => [1, 3, 5].map((offset) => parseInt(normalizeColor(value).slice(offset, offset + 2), 16));
   const channelsToColor = (channels) => `#${channels.map((channel) => Math.round(clamp(channel, 0, 255, 0)).toString(16).padStart(2, "0")).join("")}`;
+  const fluorescentHaloColor = (value) => {
+    const channels = colorChannels(value);
+    const minimum = Math.min(...channels);
+    const maximum = Math.max(...channels);
+    const range = maximum - minimum;
+    if (range < 3) return normalizeColor(value);
+    return channelsToColor(channels.map((channel) => 45 + (channel - minimum) / range * 210));
+  };
+  const trailPose = (stick) => {
+    const top = stick.reverseDirection ? stick.bottom : stick.top;
+    const bottom = stick.reverseDirection ? stick.top : stick.bottom;
+    return { top, bottom, center: { x: (top.x + bottom.x) / 2, y: (top.y + bottom.y) / 2 } };
+  };
+  const trailFractions = (points) => {
+    const distances = [0];
+    for (let index = 1; index < points.length; index += 1) {
+      distances.push(distances.at(-1) + Math.hypot(points[index].x - points[index - 1].x, points[index].y - points[index - 1].y));
+    }
+    const total = distances.at(-1) || 0;
+    return total > 0.0001
+      ? distances.map((distance) => distance / total)
+      : points.map((_, index) => index / Math.max(1, points.length - 1));
+  };
+  const trailChaikin = (points, iterations = 3) => {
+    let curve = points.map((entry) => ({ ...entry }));
+    for (let pass = 0; pass < iterations && curve.length >= 3; pass += 1) {
+      const next = [{ ...curve[0] }];
+      for (let index = 0; index < curve.length - 1; index += 1) {
+        const a = curve[index], b = curve[index + 1];
+        next.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 });
+        next.push({ x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 });
+      }
+      next.push({ ...curve.at(-1) });
+      curve = next;
+    }
+    return curve;
+  };
+  const trailSamplePolyline = (points, fraction) => {
+    if (!points.length) return { x: 0, y: 0 };
+    if (points.length === 1 || fraction <= 0) return { ...points[0] };
+    if (fraction >= 1) return { ...points.at(-1) };
+    const fractions = trailFractions(points);
+    let index = 0;
+    while (index + 1 < fractions.length && fractions[index + 1] < fraction) index += 1;
+    const span = Math.max(0.000001, fractions[index + 1] - fractions[index]);
+    const phase = clamp((fraction - fractions[index]) / span, 0, 1, 0);
+    return {
+      x: points[index].x + (points[index + 1].x - points[index].x) * phase,
+      y: points[index].y + (points[index + 1].y - points[index].y) * phase,
+    };
+  };
+  const trailSampleByX = (points, x) => {
+    if (!points.length) return 0;
+    if (points.length === 1 || x <= points[0].x) return points[0].y;
+    if (x >= points.at(-1).x) return points.at(-1).y;
+    let index = 0;
+    while (index + 1 < points.length && points[index + 1].x < x) index += 1;
+    const span = Math.max(0.000001, points[index + 1].x - points[index].x);
+    const phase = clamp((x - points[index].x) / span, 0, 1, 0);
+    return points[index].y + (points[index + 1].y - points[index].y) * phase;
+  };
+  const normalizeTrailVector = (value, fallback = { x: 1, y: 0 }) => {
+    const length = Math.hypot(value.x, value.y);
+    return length > 0.0001 ? { x: value.x / length, y: value.y / length } : { ...fallback };
+  };
+  const signedTrailAngle = (from, to) => {
+    const radians = Math.atan2(from.x * to.y - from.y * to.x, from.x * to.x + from.y * to.y);
+    return Math.round(radians * 1800 / Math.PI) / 10;
+  };
+  const attackTrailLifecycleOrigin = (sticks, frameArrival) => {
+    if (!Array.isArray(sticks) || !sticks.length || typeof frameArrival !== "function") return 0;
+    return Number(frameArrival(sticks[0].frame, 0)) || 0;
+  };
+  const normalizeFrameSlices = (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const result = {};
+    for (const [rawFrame, rawSlice] of Object.entries(value)) {
+      if (!rawSlice || typeof rawSlice !== "object") continue;
+      const frame = Math.max(0, Math.round(clamp(rawFrame, 0, 100000, 0)));
+      const tail = clamp(rawSlice.tailProgress ?? rawSlice.tail ?? rawSlice.start, 0, 1, 0);
+      const head = clamp(rawSlice.headProgress ?? rawSlice.head ?? rawSlice.end, 0, 1, 1);
+      result[String(frame)] = {
+        enabled: rawSlice.enabled !== false,
+        tailProgress: Math.min(tail, head),
+        headProgress: Math.max(tail, head),
+      };
+    }
+    return result;
+  };
+  const smoothTrailSticks = (sticks) => {
+    if (!Array.isArray(sticks) || sticks.length < 3) return Array.isArray(sticks) ? clone(sticks) : [];
+    const result = clone(sticks);
+    const poses = result.map(trailPose);
+    const centers = poses.map((pose) => pose.center);
+    const fractions = trailFractions(centers);
+    const centerCurve = trailChaikin(centers, 3);
+    const smoothCenters = fractions.map((fraction) => trailSamplePolyline(centerCurve, fraction));
+    smoothCenters[0] = { ...centers[0] };
+    smoothCenters[smoothCenters.length - 1] = { ...centers.at(-1) };
+
+    const lengths = poses.map((pose) => Math.max(1, Math.hypot(pose.bottom.x - pose.top.x, pose.bottom.y - pose.top.y)));
+    const lengthCurve = trailChaikin(fractions.map((fraction, index) => ({ x: fraction, y: lengths[index] })), 3);
+    const smoothLengths = fractions.map((fraction) => Math.max(1, trailSampleByX(lengthCurve, fraction)));
+
+    for (let index = 0; index < result.length; index += 1) {
+      const fraction = fractions[index];
+      const previousGap = index > 0 ? fraction - fractions[index - 1] : 1;
+      const nextGap = index + 1 < fractions.length ? fractions[index + 1] - fraction : 1;
+      const probe = clamp(Math.min(previousGap, nextGap) * 0.45, 0.005, 0.06, 0.02);
+      const before = trailSamplePolyline(centerCurve, Math.max(0, fraction - probe));
+      const after = trailSamplePolyline(centerCurve, Math.min(1, fraction + probe));
+      const tangent = normalizeTrailVector(
+        { x: after.x - before.x, y: after.y - before.y },
+        index ? { x: smoothCenters[index].x - smoothCenters[index - 1].x, y: smoothCenters[index].y - smoothCenters[index - 1].y } : { x: 1, y: 0 },
+      );
+      let normal = { x: tangent.y, y: -tangent.x };
+      const oldAcross = {
+        x: poses[index].bottom.x - poses[index].top.x,
+        y: poses[index].bottom.y - poses[index].top.y,
+      };
+      if (normal.x * oldAcross.x + normal.y * oldAcross.y < 0) normal = { x: -normal.x, y: -normal.y };
+      const halfLength = smoothLengths[index] / 2;
+      const poseTop = {
+        x: smoothCenters[index].x - normal.x * halfLength,
+        y: smoothCenters[index].y - normal.y * halfLength,
+      };
+      const poseBottom = {
+        x: smoothCenters[index].x + normal.x * halfLength,
+        y: smoothCenters[index].y + normal.y * halfLength,
+      };
+      const baseDirection = { x: -normal.y, y: normal.x };
+      const incoming = index > 0
+        ? normalizeTrailVector({ x: smoothCenters[index].x - smoothCenters[index - 1].x, y: smoothCenters[index].y - smoothCenters[index - 1].y }, tangent)
+        : tangent;
+      const outgoing = index + 1 < smoothCenters.length
+        ? normalizeTrailVector({ x: smoothCenters[index + 1].x - smoothCenters[index].x, y: smoothCenters[index + 1].y - smoothCenters[index].y }, tangent)
+        : tangent;
+      const turn = Math.acos(clamp(incoming.x * outgoing.x + incoming.y * outgoing.y, -1, 1, 1));
+      const tangentStrength = clamp(1 / Math.max(0.7, Math.cos(turn / 4) ** 2), 0.8, 1.2, 1);
+      const roundedTop = { x: Math.round(poseTop.x * 10) / 10, y: Math.round(poseTop.y * 10) / 10 };
+      const roundedBottom = { x: Math.round(poseBottom.x * 10) / 10, y: Math.round(poseBottom.y * 10) / 10 };
+      result[index].top = result[index].reverseDirection ? roundedBottom : roundedTop;
+      result[index].bottom = result[index].reverseDirection ? roundedTop : roundedBottom;
+      result[index].directionOffset = signedTrailAngle(baseDirection, tangent);
+      result[index].tangentStrength = Math.round(tangentStrength * 100) / 100;
+    }
+    return result;
+  };
 
   class AttackTrailEditor {
     constructor(hooks) {
@@ -67,7 +397,14 @@
       this.gradientDrag = null;
       this.presetEditOriginal = null;
       this.enabled = false;
+      this.workspaceMode = "";
+      this.attachmentEditingLocked = false;
       this.guidesVisible = false;
+      this.pathVisible = true;
+      this.previewing = false;
+      this.staticEditPreview = false;
+      this.previewStartedAt = 0;
+      this.previewRequest = 0;
       this.picking = false;
       this.drag = null;
       this.images = new Map();
@@ -82,17 +419,34 @@
       this.meshRepairCanvas = document.createElement("canvas");
       this.meshRepairContext = this.meshRepairCanvas.getContext("2d");
       this.gpuCanvas = document.createElement("canvas");
+      this.gpuCoreCanvas = document.createElement("canvas");
+      this.gpuCoreContext = this.gpuCoreCanvas.getContext("2d");
+      this.gpuGlowCanvas = document.createElement("canvas");
+      this.gpuGlowContext = this.gpuGlowCanvas.getContext("2d");
       this.gpuTextures = new WeakMap();
       this.gpuRenderer = this._createGpuRenderer();
       this.els = Object.fromEntries([
-        "attackTrailPanel", "attackTrailMode", "attackTrailBody", "attackTrailSegment", "attackTrailNew",
-        "attackTrailDelete", "attackTrailLayerToggle", "attackTrailTextureFile",
+        "attackTrailPanel", "attackTrailMode", "attackTrailModeChoices", "attackTrailDrawMode", "attackTrailInsertMode",
+        "attackTrailBody", "attackTrailDrawControls", "attackTrailInsertControls", "attackTrailSegment", "attackTrailNew",
+        "attackTrailDelete", "attackTrailLayerToggle", "attackTrailTextureFile", "attackTrailInvertTexture",
         "attackTrailTextureBrowse", "attackTrailTextureName", "attackTrailTexturePreview", "attackTrailColorMode",
-        "attackTrailColor", "attackTrailPickColor", "attackTrailGradientEditor", "attackTrailGradientBar",
-        "attackTrailGradientColor", "attackTrailGradientPosition", "attackTrailBeforeTimeMs", "attackTrailAfterTimeMs",
+        "attackTrailColor", "attackTrailBodyOpacityFloor", "attackTrailBodyDetailStrength", "attackTrailBodyWhiteThreshold",
+        "attackTrailPickColor", "attackTrailGradientEditor", "attackTrailGradientBar",
+        "attackTrailGradientColor", "attackTrailGradientPosition",
+        "attackTrailStreaksEnabled", "attackTrailStreaksPreview", "attackTrailStreaksName", "attackTrailStreaksFile",
+        "attackTrailStreaksBrowse", "attackTrailStreaksColor", "attackTrailStreaksStrength", "attackTrailStreaksThreshold", "attackTrailStreaksSoftness", "attackTrailStreaksExpansion", "attackTrailStreaksBlend", "attackTrailStreaksInvert",
+        "attackTrailBreakupEnabled", "attackTrailBreakupPreview", "attackTrailBreakupName", "attackTrailBreakupFile",
+        "attackTrailBreakupBrowse", "attackTrailBreakupColor", "attackTrailBreakupStrength", "attackTrailBreakupThreshold", "attackTrailBreakupSoftness", "attackTrailBreakupExpansion", "attackTrailBreakupBlend", "attackTrailBreakupInvert",
+        "attackTrailCoreEnabled", "attackTrailCorePreview", "attackTrailCoreName", "attackTrailCoreFile",
+        "attackTrailCoreBrowse", "attackTrailCoreColor", "attackTrailCoreStrength", "attackTrailCoreBlend", "attackTrailCoreInvert",
+        "attackTrailCoreEdge", "attackTrailGlowColor", "attackTrailGlowStrength", "attackTrailGlowRadius", "attackTrailHeadLightBoost",
+        "attackTrailHeadWhitePreserve", "attackTrailHeadWhiteLength",
+        "attackTrailWidthMode", "attackTrailFixedWidth", "attackTrailWidthScale", "attackTrailWidthOffset", "attackTrailWidthChaseStrength",
+        "attackTrailPathScaleX", "attackTrailPathScaleY",
         "attackTrailTailSamples", "attackTrailPathColumns", "attackTrailTailFadeStart", "attackTrailHeadCurvature", "attackTrailHeadCurvatureValue", "attackTrailAddStick",
-        "attackTrailDeleteStick", "attackTrailReverse", "attackTrailTimingSummary",
-        "attackTrailGuideToggle", "attackTrailPresetDialog", "attackTrailPresetForm",
+        "attackTrailSmooth", "attackTrailFrameToggle",
+        "attackTrailDeleteStick", "attackTrailHeadFrame", "attackTrailReverse", "attackTrailTimingSummary",
+        "attackTrailGuideToggle", "attackTrailPathToggle", "attackTrailPreview", "attackTrailPresetDialog", "attackTrailPresetForm",
         "attackTrailPresetName", "attackTrailPresetCancel",
       ].map((id) => [id, document.querySelector(`#${id}`)]));
       this._bind();
@@ -122,48 +476,84 @@
       const data = clone(this.data);
       const draft = this.presetEditOriginal;
       if (draft) {
-        const segments = data.bindings[draft.bindingKey] || [];
+        const segments = draft.scope === "presets"
+          ? (data.presets || [])
+          : (data.bindings[draft.bindingKey] || []);
         const index = segments.findIndex((segment) => segment.id === draft.segmentId);
         if (index >= 0) segments[index] = clone(draft.segment);
       }
       return this._normalizeData(data);
     }
 
+    _usesFrameSlicesOnly() {
+      return this.hooks.projectKind() === "frame_lite";
+    }
+
     contextChanged() {
       this._discardPresetEdit();
+      this.staticEditPreview = false;
       const supported = this.hooks.projectKind() !== "codex_pets" && Boolean(this.hooks.group());
       this._syncGuideToggle(supported);
       if (this.els.attackTrailPanel) this.els.attackTrailPanel.hidden = !supported;
       if (!supported) {
+        this._stopFixedPreview();
         this.enabled = false;
+        this.workspaceMode = "";
         if (this.els.attackTrailMode) this.els.attackTrailMode.checked = false;
       }
       const segments = this._displaySegments();
-      if (!segments.some((entry) => entry.id === this.segmentId)) this.segmentId = segments[0]?.id || "";
+      this.segmentId = resolveAttackTrailContextSegmentId(this.segmentId, this._segments(), segments);
       const segment = this._segment();
-      const frameSticks = this._frameSticks(segment);
-      if (!frameSticks.some((entry) => entry.id === this.stickId)) this.stickId = frameSticks[0]?.id || "";
+      if (!segment?.sticks.some((entry) => entry.id === this.stickId)) this.stickId = "";
       this.render();
     }
 
     frameChanged() {
-      const frameSticks = this._frameSticks(this._segment());
-      if (!frameSticks.some((entry) => entry.id === this.stickId)) this.stickId = frameSticks[0]?.id || "";
+      if (this.workspaceMode !== "draw") this.stickId = "";
       this.render();
     }
 
     isContinuous() {
-      return this.enabled && this._segments().some((segment) => segment.enabled !== false && segment.generated !== false && segment.sticks.length >= 2);
+      if (this.staticEditPreview) return false;
+      if (this.previewing) return true;
+      if (this._usesFrameSlicesOnly()) return false;
+      return this.enabled && this.workspaceMode !== "draw" && this._segments().some((segment) => (
+        !segment.frameSlices
+        && segment.enabled !== false
+        && segment.generated !== false
+        && segment.sticks.length >= 2
+      ));
+    }
+
+    isEditingWorkspace() {
+      return this.enabled && (this.workspaceMode === "draw" || this.workspaceMode === "insert");
+    }
+
+    _syncAttachmentEditingLock() {
+      const locked = this.isEditingWorkspace();
+      if (locked === this.attachmentEditingLocked) return;
+      this.attachmentEditingLocked = locked;
+      this.hooks.attachmentEditingLockChanged?.(locked);
+    }
+
+    stopPreview() {
+      this._stopFixedPreview();
     }
 
     async prepareExport() {
-      await Promise.all(this._segments()
-        .filter((segment) => segment.enabled !== false && segment.generated !== false && segment.texture?.path)
-        .map(async (segment) => {
-          if (this.images.has(segment.texture.path)) return;
-          const image = await this.hooks.loadTexture(segment.texture);
-          this.images.set(segment.texture.path, image);
-        }));
+      const textures = [];
+      for (const segment of this._segments()) {
+        if (segment.enabled === false || segment.generated === false) continue;
+        if (segment.texture?.path) textures.push(segment.texture);
+        for (const material of Object.values(segment.materialLayers || {})) {
+          if (material?.enabled !== false && material?.texture?.path) textures.push(material.texture);
+        }
+      }
+      await Promise.all(textures.map(async (texture) => {
+        if (this.images.has(texture.path)) return;
+        const image = await this.hooks.loadTexture(texture);
+        this.images.set(texture.path, image);
+      }));
     }
 
     exportEndTime(animationDuration = 0) {
@@ -173,48 +563,85 @@
     }
 
     hasExportTrail() {
+      const frameSlicesOnly = this._usesFrameSlicesOnly();
       return this._segments().some((segment) => segment.enabled !== false
         && segment.generated !== false
-        && segment.sticks.length >= 2);
+        && segment.sticks.length >= 2
+        && (frameSlicesOnly
+          ? Object.values(segment.frameSlices || {}).some((slice) => slice?.enabled)
+          : (!segment.frameSlices || Object.values(segment.frameSlices).some((slice) => slice?.enabled))));
     }
 
     exportTimeRanges() {
       const ranges = [];
       for (const segment of this._segments()) {
         if (segment.enabled === false || segment.generated === false || segment.sticks.length < 2) continue;
+        if (segment.frameSlices) {
+          for (const [rawFrame, slice] of Object.entries(segment.frameSlices)) {
+            if (!slice?.enabled) continue;
+            const frame = Math.max(0, Math.round(Number(rawFrame) || 0));
+            const start = Math.max(0, Number(this.hooks.frameArrival(frame, 0)) || 0);
+            const end = Math.max(start, Number(this.hooks.frameArrival(frame, 1)) || start);
+            ranges.push({ start, end });
+          }
+          continue;
+        }
+        if (this._usesFrameSlicesOnly()) continue;
         const timing = this._timing(segment);
         const start = Math.max(0, Number(timing.absolute[0] || 0));
-        const pathEnd = Math.max(start, Number(timing.absolute.at(-1) || start));
-        ranges.push({ start, end: pathEnd + this._chaseTimes(segment).afterMs / 1000 });
+        ranges.push({ start, end: start + timing.totalDuration });
       }
       return ranges;
     }
 
     selectedStickArrival() {
       if (!this.enabled) return null;
+      const segment = this._segment();
       const stick = this._stick();
-      if (!stick || stick.frame !== this.hooks.selectedFrame()) return null;
-      return this.hooks.frameArrival(stick.frame, stick.framePhase);
+      if (!segment || !stick || stick.frame !== this.hooks.selectedFrame()) return null;
+      const index = segment.sticks.findIndex((entry) => entry.id === stick.id);
+      return this._timing(segment).absolute[index] ?? this.hooks.frameArrival(stick.frame, stick.framePhase);
     }
 
     render() {
+      this._syncAttachmentEditingLock();
       const e = this.els;
       const supported = this.hooks.projectKind() !== "codex_pets" && Boolean(this.hooks.group());
       this._syncGuideToggle(supported);
       if (!e.attackTrailPanel || e.attackTrailPanel.hidden) return;
       e.attackTrailMode.checked = this.enabled;
-      e.attackTrailBody.hidden = !this.enabled;
+      e.attackTrailModeChoices.hidden = !this.enabled;
+      e.attackTrailBody.hidden = !this.enabled || !this.workspaceMode;
+      e.attackTrailDrawControls.hidden = this.workspaceMode !== "draw";
+      e.attackTrailInsertControls.hidden = this.workspaceMode !== "insert";
+      e.attackTrailDrawMode.classList.toggle("active", this.workspaceMode === "draw");
+      e.attackTrailInsertMode.classList.toggle("active", this.workspaceMode === "insert");
+      e.attackTrailDrawMode.setAttribute("aria-pressed", this.workspaceMode === "draw" ? "true" : "false");
+      e.attackTrailInsertMode.setAttribute("aria-pressed", this.workspaceMode === "insert" ? "true" : "false");
       const segments = this._displaySegments();
       e.attackTrailSegment.innerHTML = segments.length
-        ? segments.map((segment, index) => `<option value="${this._escape(segment.id)}">${segment.presetOnly ? "预设 · " : `${index + 1}. `}${this._escape(segment.name || `Trail ${index + 1}`)}</option>`).join("")
+        ? segments.map((segment, index) => `<option value="${this._escape(segment.id)}">${segment.presetOnly ? "应用预设（全局通用）· " : `拖尾 ${index + 1} · `}${this._escape(segment.name || `Trail ${index + 1}`)}</option>`).join("")
         : '<option value="">暂无拖尾段</option>';
       e.attackTrailSegment.value = this.segmentId;
       const segment = this._segment();
       const presetPreview = this._isPresetSegment(segment);
+      const materialControlIds = ["Streaks", "Breakup", "Core"].flatMap((prefix) => [
+        `attackTrail${prefix}Enabled`, `attackTrail${prefix}Browse`, `attackTrail${prefix}Color`,
+        ...(prefix === "Core" ? [] : [
+          `attackTrail${prefix}Strength`, `attackTrail${prefix}Threshold`, `attackTrail${prefix}Softness`, `attackTrail${prefix}Expansion`,
+        ]),
+        `attackTrail${prefix}Blend`, `attackTrail${prefix}Invert`,
+      ]);
       for (const element of [e.attackTrailDelete, e.attackTrailLayerToggle, e.attackTrailTextureBrowse,
-        e.attackTrailColorMode, e.attackTrailColor, e.attackTrailPickColor, e.attackTrailGradientColor, e.attackTrailBeforeTimeMs,
-        e.attackTrailAfterTimeMs, e.attackTrailTailSamples, e.attackTrailPathColumns, e.attackTrailTailFadeStart, e.attackTrailHeadCurvature,
-        e.attackTrailAddStick, e.attackTrailDeleteStick, e.attackTrailReverse]) {
+        e.attackTrailInvertTexture, e.attackTrailColorMode, e.attackTrailColor, e.attackTrailBodyOpacityFloor, e.attackTrailBodyDetailStrength,
+        e.attackTrailBodyWhiteThreshold, e.attackTrailPickColor, e.attackTrailGradientColor,
+        ...materialControlIds.map((id) => e[id]), e.attackTrailCoreEdge, e.attackTrailGlowStrength, e.attackTrailGlowRadius,
+        e.attackTrailHeadLightBoost, e.attackTrailHeadWhitePreserve, e.attackTrailHeadWhiteLength,
+        e.attackTrailWidthMode, e.attackTrailFixedWidth, e.attackTrailWidthScale, e.attackTrailWidthOffset, e.attackTrailWidthChaseStrength,
+        e.attackTrailPathScaleX, e.attackTrailPathScaleY,
+        e.attackTrailTailSamples, e.attackTrailPathColumns, e.attackTrailTailFadeStart, e.attackTrailHeadCurvature,
+        e.attackTrailAddStick, e.attackTrailDeleteStick, e.attackTrailHeadFrame, e.attackTrailReverse, e.attackTrailSmooth,
+        e.attackTrailFrameToggle]) {
         if (element) element.disabled = !segment;
       }
       if (e.attackTrailDelete) e.attackTrailDelete.disabled = !segment || presetPreview;
@@ -223,35 +650,103 @@
         e.attackTrailTexturePreview.hidden = true;
         e.attackTrailGradientEditor.hidden = true;
         e.attackTrailTimingSummary.textContent = "";
+        this._syncToolbar(supported);
         return;
       }
       e.attackTrailTextureName.textContent = segment.texture?.name
         ? `${presetPreview ? "默认预设 · " : ""}${segment.texture.name}`
         : "尚未导入 PNG";
       this._renderTexturePreview(segment);
+      e.attackTrailInvertTexture.classList.toggle("active", segment.invertTexture === true);
+      e.attackTrailInvertTexture.setAttribute("aria-pressed", segment.invertTexture === true ? "true" : "false");
+      e.attackTrailInvertTexture.title = segment.invertTexture === true ? "恢复当前拖尾纹理原始明暗" : "反转当前拖尾纹理的明暗";
       e.attackTrailColorMode.value = segment.colorMode;
       e.attackTrailColor.value = segment.color.slice(0, 7);
+      e.attackTrailBodyOpacityFloor.value = Math.round(segment.bodyOpacityFloor * 100);
+      e.attackTrailBodyDetailStrength.value = Math.round(segment.bodyDetailStrength * 100);
+      e.attackTrailBodyWhiteThreshold.value = Math.round(segment.bodyWhiteThreshold * 100);
       const solidColorMode = segment.colorMode === "solid";
       e.attackTrailColor.disabled = !solidColorMode;
       e.attackTrailPickColor.disabled = !solidColorMode;
+      const materialUi = {
+        streaks: "Streaks",
+        breakup: "Breakup",
+        core: "Core",
+      };
+      for (const [layerId, prefix] of Object.entries(materialUi)) {
+        const material = segment.materialLayers[layerId];
+        const enabled = material.enabled !== false;
+        e[`attackTrail${prefix}Enabled`].checked = enabled;
+        e[`attackTrail${prefix}Color`].value = material.color;
+        const strengthControl = e[`attackTrail${prefix}Strength`];
+        if (strengthControl) strengthControl.value = Math.round(material.strength * 100);
+        const thresholdControl = e[`attackTrail${prefix}Threshold`];
+        if (thresholdControl) thresholdControl.value = Math.round(material.threshold * 100);
+        const softnessControl = e[`attackTrail${prefix}Softness`];
+        if (softnessControl) softnessControl.value = Math.round(material.softness * 100);
+        const expansionControl = e[`attackTrail${prefix}Expansion`];
+        if (expansionControl) expansionControl.value = Math.round(material.expansion * 100);
+        e[`attackTrail${prefix}Blend`].value = material.blendMode;
+        e[`attackTrail${prefix}Invert`].checked = material.invert === true;
+        e[`attackTrail${prefix}Name`].textContent = material.texture?.name || "尚未导入 PNG";
+        const preview = e[`attackTrail${prefix}Preview`];
+        if (material.texture?.path) {
+          preview.src = this.hooks.assetUrl(material.texture);
+          preview.hidden = false;
+        } else {
+          preview.removeAttribute("src");
+          preview.hidden = true;
+        }
+        for (const suffix of ["Browse", "Color", "Strength", "Threshold", "Softness", "Expansion", "Blend", "Invert"]) {
+          const control = e[`attackTrail${prefix}${suffix}`];
+          if (control) control.disabled = !enabled;
+        }
+      }
+      e.attackTrailCoreEdge.value = segment.coreEdge;
+      e.attackTrailGlowColor.value = segment.glowColor;
+      e.attackTrailGlowStrength.value = Math.round(segment.glowStrength * 100);
+      e.attackTrailGlowRadius.value = Math.round(segment.glowRadius);
+      e.attackTrailHeadLightBoost.value = Math.round(segment.headLightBoost * 100);
+      e.attackTrailHeadWhitePreserve.value = Math.round(segment.headWhitePreserve * 100);
+      e.attackTrailHeadWhiteLength.value = Math.round(segment.headWhiteLength * 100);
+      for (const element of [e.attackTrailCoreEdge, e.attackTrailGlowColor, e.attackTrailGlowStrength,
+        e.attackTrailGlowRadius, e.attackTrailHeadLightBoost, e.attackTrailHeadWhitePreserve, e.attackTrailHeadWhiteLength]) {
+        element.disabled = segment.materialLayers.core.enabled === false;
+      }
       e.attackTrailGradientEditor.hidden = segment.colorMode !== "gradient";
       if (segment.colorMode === "gradient") this._renderGradientEditor(segment);
       e.attackTrailPickColor.classList.toggle("active", this.picking);
-      const chaseTimes = this._chaseTimes(segment);
-      e.attackTrailBeforeTimeMs.value = chaseTimes.beforeMs;
-      e.attackTrailAfterTimeMs.value = chaseTimes.afterMs;
-      e.attackTrailAfterTimeMs.disabled = chaseTimes.beforeMs <= 0;
+      e.attackTrailWidthMode.value = segment.widthMode;
+      e.attackTrailFixedWidth.value = Math.round(segment.fixedWidth);
+      e.attackTrailWidthScale.value = Math.round(segment.widthScale * 100);
+      e.attackTrailWidthOffset.value = Math.round(segment.widthOffset * 100);
+      e.attackTrailWidthChaseStrength.value = Math.round(segment.widthChaseStrength * 100);
+      e.attackTrailPathScaleX.value = Math.round(segment.pathScaleX * 100);
+      e.attackTrailPathScaleY.value = Math.round(segment.pathScaleY * 100);
+      e.attackTrailFixedWidth.disabled = segment.widthMode !== "fixed";
       e.attackTrailTailSamples.value = segment.tailSamples;
       e.attackTrailPathColumns.value = segment.pathColumns;
       e.attackTrailTailFadeStart.value = Math.round(segment.tailFadeStart * 100);
       e.attackTrailHeadCurvature.value = Math.round(segment.headCurvature * 100);
       e.attackTrailHeadCurvatureValue.value = `${Math.round(segment.headCurvature * 100)}`;
-      const frameSticks = this._frameSticks(segment);
-      if (!frameSticks.some((entry) => entry.id === this.stickId)) this.stickId = frameSticks[0]?.id || "";
+      const frameSlice = this._frameSlice(segment);
+      e.attackTrailFrameToggle.disabled = segment.sticks.length < 2 || presetPreview;
+      e.attackTrailFrameToggle.classList.toggle("active", Boolean(frameSlice?.enabled));
+      e.attackTrailFrameToggle.textContent = frameSlice?.enabled ? "移除本帧拖尾" : "本帧加入拖尾";
+      if (!segment.sticks.some((entry) => entry.id === this.stickId)) this.stickId = "";
       const stick = this._stick();
+      const stickIndex = segment.sticks.findIndex((entry) => entry.id === stick?.id);
+      const endpointStick = stickIndex === segment.sticks.length - 1;
       e.attackTrailDeleteStick.disabled = !stick;
+      e.attackTrailHeadFrame.disabled = !stick || endpointStick;
       e.attackTrailLayerToggle.disabled = !stick;
       e.attackTrailReverse.disabled = !stick;
+      e.attackTrailSmooth.disabled = segment.sticks.length < 3 || presetPreview;
+      e.attackTrailHeadFrame.classList.toggle("active", stick?.headFrame !== false);
+      e.attackTrailHeadFrame.setAttribute("aria-pressed", stick?.headFrame !== false ? "true" : "false");
+      e.attackTrailHeadFrame.title = endpointStick
+        ? "最后一根棍子必须是头部帧"
+        : (stick?.headFrame !== false ? "当前棍子会成为实际显示的拖尾头部帧" : "当前棍子只塑造轨迹，不会成为拖尾头部");
       e.attackTrailLayerToggle.classList.toggle("behind", stick?.layer === "behind");
       e.attackTrailLayerToggle.classList.toggle("front", stick?.layer === "front");
       e.attackTrailLayerToggle.textContent = stick
@@ -259,28 +754,61 @@
         : "角色层";
       e.attackTrailReverse.classList.toggle("active", stick?.reverseDirection === true);
       e.attackTrailReverse.setAttribute("aria-pressed", stick?.reverseDirection === true ? "true" : "false");
-      const timing = this._timing(segment);
-      e.attackTrailTimingSummary.textContent = timing.times.length >= 2
-        ? `路径：第 ${segment.sticks[0].frame + 1} 帧 → 第 ${segment.sticks.at(-1).frame + 1} 帧 · ${Math.round(timing.times.at(-1) * 1000)} ms`
-        : "至少需要两根棍子才能生成拖尾。";
+      e.attackTrailTimingSummary.textContent = segment.presetOnly
+        ? "这是新建拖尾使用的预设；修改它不会改变已有拖尾。"
+        : segment.sticks.length >= 2
+          ? `轨迹：${segment.sticks.length} 根棍子 · 拖尾预览固定 1000 ms · 尾/头速度比 0.5`
+          : "至少需要两根棍子才能生成拖尾。";
+      this._syncToolbar(supported);
     }
 
     drawLayer(layer, frameIndex, alpha = 1) {
       if (!this.enabled || frameIndex !== this.hooks.selectedFrame()) return;
+      if (this.workspaceMode === "draw") {
+        const segment = this._segment();
+        if (!segment || segment.enabled === false || segment.generated === false || segment.sticks.length < 2 || !segment.texture?.path) return;
+        if (this.previewing) {
+          const elapsed = (performance.now() - this.previewStartedAt) / 1000;
+          this._drawSegment(segment, alpha, layer, null, elapsed);
+          return;
+        }
+        if (this.staticEditPreview) {
+          this._drawSegment(segment, alpha, layer, { enabled: true, tailProgress: 0, headProgress: 1 });
+          return;
+        }
+        const stickIndex = segment.sticks.findIndex((entry) => entry.id === this.stickId);
+        const headProgress = stickIndex < 0
+          ? 1
+          : this._stickProgress(segment, stickIndex);
+        this._drawSegment(segment, alpha, layer, { enabled: true, tailProgress: 0, headProgress });
+        return;
+      }
+      if (!this.workspaceMode && this.hooks.selectedGuidePreviewActive?.() === true) return;
       for (const segment of this._segments()) {
         if (segment.enabled === false || segment.generated === false || segment.sticks.length < 2 || !segment.texture?.path) continue;
-        this._drawSegment(segment, alpha, layer);
+        if (this.workspaceMode === "insert" || segment.frameSlices) {
+          const slice = segment.frameSlices?.[String(frameIndex)];
+          if (slice?.enabled) this._drawSegment(segment, alpha, layer, slice);
+        } else {
+          this._drawSegment(segment, alpha, layer);
+        }
       }
     }
 
     drawGuides() {
-      if (!this.enabled || !this.guidesVisible) return;
+      if (!this.enabled || !this.workspaceMode) return;
       const segment = this._segment();
       if (!segment) return;
+      if (this.workspaceMode === "insert") {
+        const frameSlice = this._frameSlice(segment);
+        if (frameSlice?.enabled && this.pathVisible) this._drawFrameSliceHandles(segment, frameSlice);
+        return;
+      }
+      if (this.workspaceMode !== "draw" || !this.guidesVisible) return;
       const ctx = this.hooks.ctx;
       const dpr = this.hooks.dpr();
-      this._drawSelectedPathGuide(segment);
-      for (const stick of this._frameSticks(segment)) {
+      if (this.pathVisible) this._drawSelectedPathGuide(segment);
+      for (const stick of segment.sticks) {
         const top = this.hooks.localToScreen(stick.top);
         const bottom = this.hooks.localToScreen(stick.bottom);
         const center = { x: (top.x + bottom.x) / 2, y: (top.y + bottom.y) / 2 };
@@ -332,6 +860,66 @@
       }
     }
 
+    _frameSliceHandleScreen(segment, progress) {
+      const state = this._pathState(segment);
+      const time = this._timeAtDistance(state, state.total * clamp(progress, 0, 1, 0));
+      return this.hooks.localToScreen(this._pose(segment.sticks, state.timing.times, time).center);
+    }
+
+    _nearestFrameSliceProgress(segment, cursor) {
+      const state = this._pathState(segment);
+      let nearest = state.samples[0];
+      let nearestDistance = Infinity;
+      for (const sample of state.samples) {
+        const screen = this.hooks.localToScreen(sample.pose.center);
+        const distance = Math.hypot(cursor.x - screen.x, cursor.y - screen.y);
+        if (distance < nearestDistance) {
+          nearest = sample;
+          nearestDistance = distance;
+        }
+      }
+      return clamp(nearest.distance / Math.max(0.001, state.total), 0, 1, 0);
+    }
+
+    _drawFrameSliceHandles(segment, slice) {
+      const state = this._pathState(segment);
+      const ctx = this.hooks.ctx;
+      const dpr = this.hooks.dpr();
+      ctx.save();
+      if (this.pathVisible) {
+        ctx.strokeStyle = "rgba(255,255,255,.55)";
+        ctx.lineWidth = 2 * dpr;
+        ctx.setLineDash([6 * dpr, 5 * dpr]);
+        ctx.beginPath();
+        state.samples.forEach((sample, index) => {
+          const screen = this.hooks.localToScreen(sample.pose.center);
+          if (!index) ctx.moveTo(screen.x, screen.y);
+          else ctx.lineTo(screen.x, screen.y);
+        });
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      for (const [endpoint, label, color] of [
+        ["tailProgress", "尾", "#39baff"],
+        ["headProgress", "头", "#ff982e"],
+      ]) {
+        const handle = this._frameSliceHandleScreen(segment, slice[endpoint]);
+        ctx.fillStyle = color;
+        ctx.strokeStyle = "#10151d";
+        ctx.lineWidth = 3 * dpr;
+        ctx.beginPath();
+        ctx.arc(handle.x, handle.y, 11 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#fff";
+        ctx.font = `900 ${12 * dpr}px system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, handle.x, handle.y);
+      }
+      ctx.restore();
+    }
+
     _drawSelectedPathGuide(segment) {
       const selectedIndex = segment.sticks.findIndex((stick) => stick.id === this.stickId);
       if (selectedIndex < 0 || segment.sticks.length < 2) return;
@@ -380,17 +968,30 @@
     }
 
     pointerDown(event) {
-      if (!this.enabled) return false;
+      if (!this.enabled || !this.workspaceMode) return false;
+      this.staticEditPreview = false;
       if (this.picking) {
+        if (this.workspaceMode !== "draw") return false;
         this._pickColor(event);
         return true;
       }
-      if (!this.guidesVisible) return false;
       const segment = this._segment();
       if (!segment) return false;
       const cursor = this.hooks.stagePoint(event);
       const radius = HANDLE_RADIUS * this.hooks.dpr() * 1.8;
-      for (const stick of [...this._frameSticks(segment)].reverse()) {
+      const frameSlice = this.workspaceMode === "insert" ? this._frameSlice(segment) : null;
+      if (frameSlice?.enabled) {
+        for (const endpoint of ["headProgress", "tailProgress"]) {
+          const handle = this._frameSliceHandleScreen(segment, frameSlice[endpoint]);
+          if (Math.hypot(cursor.x - handle.x, cursor.y - handle.y) <= radius) {
+            this.hooks.pushUndo("drag frame trail endpoint");
+            this.drag = { mode: "frameSlice", endpoint };
+            return true;
+          }
+        }
+      }
+      if (this.workspaceMode !== "draw" || !this.guidesVisible) return false;
+      for (const stick of [...segment.sticks].reverse()) {
         const handle = this._directionHandleScreen(stick).arrow;
         if (Math.hypot(cursor.x - handle.x, cursor.y - handle.y) <= radius) {
           this.hooks.pushUndo("adjust attack trail curve handle");
@@ -400,7 +1001,7 @@
           return true;
         }
       }
-      for (const stick of [...this._frameSticks(segment)].reverse()) {
+      for (const stick of [...segment.sticks].reverse()) {
         for (const endpoint of ["top", "bottom"]) {
           const handle = this.hooks.localToScreen(stick[endpoint]);
           if (Math.hypot(cursor.x - handle.x, cursor.y - handle.y) <= radius) {
@@ -413,7 +1014,7 @@
           }
         }
       }
-      for (const stick of [...this._frameSticks(segment)].reverse()) {
+      for (const stick of [...segment.sticks].reverse()) {
         const top = this.hooks.localToScreen(stick.top);
         const bottom = this.hooks.localToScreen(stick.bottom);
         const center = { x: (top.x + bottom.x) / 2, y: (top.y + bottom.y) / 2 };
@@ -432,7 +1033,7 @@
           return true;
         }
       }
-      for (const stick of [...this._frameSticks(segment)].reverse()) {
+      for (const stick of [...segment.sticks].reverse()) {
         const top = this.hooks.localToScreen(stick.top);
         const bottom = this.hooks.localToScreen(stick.bottom);
         if (this._distanceToSegment(cursor, top, bottom) <= 11 * this.hooks.dpr()) {
@@ -455,6 +1056,20 @@
 
     pointerMove(event) {
       if (!this.drag) return false;
+      if (this.drag.mode === "frameSlice") {
+        const segment = this._segment();
+        const slice = this._frameSlice(segment);
+        if (!segment || !slice) return false;
+        const progress = this._nearestFrameSliceProgress(segment, this.hooks.stagePoint(event));
+        if (this.drag.endpoint === "tailProgress") {
+          slice.tailProgress = Math.min(progress, slice.headProgress);
+        } else {
+          slice.headProgress = Math.max(progress, slice.tailProgress);
+        }
+        this.hooks.markDirty();
+        this.hooks.draw();
+        return true;
+      }
       const stick = this._segment()?.sticks.find((entry) => entry.id === this.drag.stickId);
       if (!stick) return false;
       const cursor = this.hooks.stagePoint(event);
@@ -503,12 +1118,41 @@
       if (!e.attackTrailMode) return;
       e.attackTrailMode.addEventListener("change", () => {
         this.enabled = e.attackTrailMode.checked;
+        this.staticEditPreview = false;
+        if (!this.enabled) {
+          this._stopFixedPreview();
+          this.workspaceMode = "";
+          this.stickId = "";
+        }
         this.picking = false;
         this.render(); this.hooks.draw();
       });
+      e.attackTrailDrawMode.addEventListener("click", () => this._setWorkspaceMode("draw"));
+      e.attackTrailInsertMode.addEventListener("click", () => this._setWorkspaceMode("insert"));
       e.attackTrailSegment.addEventListener("change", () => {
+        const selectedId = e.attackTrailSegment.value;
+        const previous = this._segment();
         this._discardPresetEdit();
-        this.segmentId = e.attackTrailSegment.value;
+        this.staticEditPreview = false;
+        const selected = this._displaySegments().find((segment) => segment.id === selectedId)
+          || (selectedId === PRESET_SEGMENT_ID ? this._presetSegment() : null);
+        if (selected?.presetOnly) {
+          let target = previous?.presetOnly !== true
+            ? this._segments().find((segment) => segment.id === previous.id)
+            : this._preferredSegment(this._segments().filter((segment) => segment.presetOnly !== true));
+          if (target) {
+            this._applyPresetToTrail(target, selected);
+            return;
+          }
+          target = this._trailFromSavedPreset(selected);
+          this.stickId = "";
+          this.hooks.markDirty();
+          this.render();
+          this.hooks.draw();
+          this.hooks.status(`已将预设“${selected.name}”复制为当前动作的独立拖尾；后续修改不会影响预设或其他动作。`);
+          return;
+        }
+        this.segmentId = selectedId;
         this.stickId = this._segment()?.sticks[0]?.id || "";
         this.picking = false;
         this.render(); this.hooks.draw();
@@ -524,8 +1168,52 @@
       e.attackTrailLayerToggle.addEventListener("click", () => this._toggleStickLayer());
       e.attackTrailTextureBrowse.addEventListener("click", () => e.attackTrailTextureFile.click());
       e.attackTrailTextureFile.addEventListener("change", () => this._uploadTexture(e.attackTrailTextureFile.files?.[0]));
+      e.attackTrailInvertTexture.addEventListener("click", () => {
+        const segment = this._segment();
+        if (!segment) return;
+        this.hooks.pushUndo("invert attack trail texture");
+        this._editSegment("invertTexture", segment.invertTexture !== true);
+      });
       e.attackTrailColorMode.addEventListener("change", () => this._setColorMode(e.attackTrailColorMode.value));
       e.attackTrailColor.addEventListener("input", () => this._editSegment("color", e.attackTrailColor.value));
+      e.attackTrailBodyOpacityFloor.addEventListener("input", () => (
+        this._editSegment("bodyOpacityFloor", clamp(e.attackTrailBodyOpacityFloor.value, 0, 100, 0) / 100)
+      ));
+      e.attackTrailBodyDetailStrength.addEventListener("input", () => (
+        this._editSegment("bodyDetailStrength", clamp(e.attackTrailBodyDetailStrength.value, 0, 100, 100) / 100)
+      ));
+      e.attackTrailBodyWhiteThreshold.addEventListener("input", () => (
+        this._editSegment("bodyWhiteThreshold", clamp(e.attackTrailBodyWhiteThreshold.value, 0, 100, 100) / 100)
+      ));
+      for (const [layerId, prefix] of [["streaks", "Streaks"], ["breakup", "Breakup"], ["core", "Core"]]) {
+        e[`attackTrail${prefix}Enabled`].addEventListener("change", () => (
+          this._editMaterialLayer(layerId, "enabled", e[`attackTrail${prefix}Enabled`].checked)
+        ));
+        e[`attackTrail${prefix}Color`].addEventListener("input", () => (
+          this._editMaterialLayer(layerId, "color", e[`attackTrail${prefix}Color`].value)
+        ));
+        const strengthControl = e[`attackTrail${prefix}Strength`];
+        if (strengthControl) strengthControl.addEventListener("input", () => (
+          this._editMaterialLayer(layerId, "strength", clamp(strengthControl.value, 0, 200, 100) / 100)
+        ));
+        for (const key of ["threshold", "softness", "expansion"]) {
+          const control = e[`attackTrail${prefix}${key[0].toUpperCase()}${key.slice(1)}`];
+          if (control) control.addEventListener("input", () => (
+            this._editMaterialLayer(layerId, key, clamp(control.value, 0, key === "expansion" ? 12 : 100, 0) / 100)
+          ));
+        }
+        e[`attackTrail${prefix}Blend`].addEventListener("change", () => (
+          this._editMaterialLayer(layerId, "blendMode", normalizeBlendMode(e[`attackTrail${prefix}Blend`].value))
+        ));
+        e[`attackTrail${prefix}Invert`].addEventListener("change", () => (
+          this._editMaterialLayer(layerId, "invert", e[`attackTrail${prefix}Invert`].checked)
+        ));
+        e[`attackTrail${prefix}Browse`].addEventListener("click", () => e[`attackTrail${prefix}File`].click());
+        e[`attackTrail${prefix}File`].addEventListener("change", () => (
+          this._uploadMaterialLayerTexture(layerId, e[`attackTrail${prefix}File`].files?.[0], prefix)
+        ));
+      }
+      e.attackTrailCoreEdge.addEventListener("change", () => this._editSegment("coreEdge", normalizeCoreEdge(e.attackTrailCoreEdge.value)));
       e.attackTrailGradientColor.addEventListener("pointerdown", () => {
         if (this._segment()?.colorMode === "gradient" && this._gradientStop()) this.hooks.pushUndo("change attack trail gradient color");
       });
@@ -546,20 +1234,56 @@
       });
       e.attackTrailPickColor.addEventListener("click", () => { this.picking = !this.picking; this.render(); this.hooks.draw(); });
       e.attackTrailGuideToggle.addEventListener("click", () => {
-        if (!this.enabled) return;
+        if (!this.enabled || this.workspaceMode !== "draw") return;
         this.guidesVisible = !this.guidesVisible;
         this._syncGuideToggle(true);
         this.hooks.draw();
       });
+      e.attackTrailPathToggle.addEventListener("click", () => {
+        if (!this.enabled || !this.workspaceMode) return;
+        this.pathVisible = !this.pathVisible;
+        this._syncToolbar(true);
+        this.hooks.draw();
+      });
+      e.attackTrailPreview.addEventListener("click", () => {
+        if (this.previewing) this._stopFixedPreview();
+        else this._startFixedPreview();
+      });
+      e.attackTrailWidthMode.addEventListener("change", () => this._editSegment(
+        "widthMode",
+        e.attackTrailWidthMode.value === "fixed" ? "fixed" : "authored",
+      ));
+      e.attackTrailFixedWidth.addEventListener("input", () => this._editSegment(
+        "fixedWidth",
+        clamp(e.attackTrailFixedWidth.value, 8, 600, 160),
+      ));
+      for (const [id, key, min, max, fallback] of [
+        ["attackTrailWidthScale", "widthScale", 10, 300, 100],
+        ["attackTrailWidthOffset", "widthOffset", -100, 100, 0],
+        ["attackTrailWidthChaseStrength", "widthChaseStrength", 0, 100, 100],
+        ["attackTrailPathScaleX", "pathScaleX", 25, 300, 100],
+        ["attackTrailPathScaleY", "pathScaleY", 25, 300, 100],
+      ]) e[id].addEventListener("input", () => this._editSegment(key, clamp(e[id].value, min, max, fallback) / 100));
       for (const [id, key, min, max] of [
         ["attackTrailTailSamples", "tailSamples", 4, 8], ["attackTrailPathColumns", "pathColumns", 8, 96],
       ]) e[id].addEventListener("input", () => this._editSegment(key, clamp(e[id].value, min, max, min)));
-      e.attackTrailBeforeTimeMs.addEventListener("input", () => this._editChaseTime("before", e.attackTrailBeforeTimeMs.value));
-      e.attackTrailAfterTimeMs.addEventListener("input", () => this._editChaseTime("after", e.attackTrailAfterTimeMs.value));
+      for (const [id, key, min, max, fallback] of [
+        ["attackTrailGlowStrength", "glowStrength", 0, 300, 28],
+        ["attackTrailHeadLightBoost", "headLightBoost", 0, 200, 55],
+        ["attackTrailHeadWhitePreserve", "headWhitePreserve", 0, 100, 0],
+        ["attackTrailHeadWhiteLength", "headWhiteLength", 0, 50, 18],
+      ]) e[id].addEventListener("input", () => this._editSegment(key, clamp(e[id].value, min, max, fallback) / 100));
+      e.attackTrailGlowColor.addEventListener("input", () => this._editSegment("glowColor", e.attackTrailGlowColor.value));
+      e.attackTrailGlowRadius.addEventListener("input", () => (
+        this._editSegment("glowRadius", clamp(e.attackTrailGlowRadius.value, 0, 60, DEFAULT_GLOW_RADIUS))
+      ));
       e.attackTrailTailFadeStart.addEventListener("input", () => this._editSegment("tailFadeStart", clamp(e.attackTrailTailFadeStart.value, 0, 95, 60) / 100));
       e.attackTrailHeadCurvature.addEventListener("input", () => this._editSegment("headCurvature", clamp(e.attackTrailHeadCurvature.value, -100, 100, 0) / 100));
       e.attackTrailAddStick.addEventListener("click", () => this._addStick());
       e.attackTrailDeleteStick.addEventListener("click", () => this._deleteStick());
+      e.attackTrailHeadFrame.addEventListener("click", () => this._toggleStickHeadFrame());
+      e.attackTrailFrameToggle.addEventListener("click", () => this._toggleFrameSlice());
+      e.attackTrailSmooth.addEventListener("click", () => this._smoothSegment());
       e.attackTrailReverse.addEventListener("click", () => {
         const stick = this._stick();
         if (!stick) return;
@@ -571,6 +1295,59 @@
       });
     }
 
+    _setWorkspaceMode(mode) {
+      if (mode !== "draw" && mode !== "insert") return;
+      this._stopFixedPreview();
+      this.staticEditPreview = false;
+      this.workspaceMode = mode;
+      this.picking = false;
+      this.drag = null;
+      this.stickId = "";
+      this.guidesVisible = mode === "draw";
+      this.render();
+      this.hooks.draw();
+    }
+
+    _startFixedPreview() {
+      const segment = this._segment();
+      if (!this.enabled || this.workspaceMode !== "draw" || !segment || segment.sticks.length < 2) return;
+      this.hooks.stopPlayback?.();
+      this.staticEditPreview = false;
+      this.previewing = true;
+      this.previewStartedAt = performance.now();
+      const tick = () => {
+        if (!this.previewing) return;
+        const elapsed = performance.now() - this.previewStartedAt;
+        if (elapsed >= DRAW_PREVIEW_DURATION_MS) {
+          this._stopFixedPreview();
+          return;
+        }
+        this.hooks.draw();
+        this.previewRequest = requestAnimationFrame(tick);
+      };
+      this.previewRequest = requestAnimationFrame(tick);
+      this._syncToolbar(true);
+      this.hooks.draw();
+    }
+
+    _stopFixedPreview(redraw = true) {
+      if (this.previewRequest) cancelAnimationFrame(this.previewRequest);
+      this.previewRequest = 0;
+      const changed = this.previewing;
+      this.previewing = false;
+      this.previewStartedAt = 0;
+      if (changed) {
+        this._syncToolbar(true);
+        if (redraw) this.hooks.draw();
+      }
+    }
+
+    _enterStaticEditPreview() {
+      this.hooks.stopPlayback?.();
+      this._stopFixedPreview(false);
+      this.staticEditPreview = true;
+    }
+
     _bindingKey() {
       const group = this.hooks.group();
       return group ? `${group.profileId}/${group.name}` : "";
@@ -580,9 +1357,22 @@
       return this.data.bindings[this._bindingKey()] || [];
     }
 
+    _presets() {
+      return this.data.presets || [];
+    }
+
     _displaySegments() {
       const segments = this._segments();
-      return segments.length ? segments : [this._presetSegment()].filter(Boolean);
+      const displayed = [
+        ...segments.filter((segment) => segment.presetOnly !== true),
+        ...segments.filter((segment) => segment.presetOnly === true),
+        ...this._presets(),
+      ];
+      return displayed.length ? displayed : [this._presetSegment()].filter(Boolean);
+    }
+
+    _preferredSegment(segments = this._displaySegments()) {
+      return preferredAttackTrailSegment(segments);
     }
 
     _presetSegment() {
@@ -606,32 +1396,27 @@
 
     _materializePreset() {
       const preview = this._segment();
-      if (!this._isPresetSegment(preview)) return preview;
-      const key = this._bindingKey();
-      const segment = this._normalizeSegment({
-        ...clone(preview),
-        id: randomId("trail"),
-        name: "默认拖尾",
-        generated: false,
-        presetOnly: true,
-      }, 0, key);
-      (this.data.bindings[key] ||= []).push(segment);
-      this.segmentId = segment.id;
-      return segment;
+      if (!preview?.presetOnly) return preview;
+      return this._trailFromSavedPreset(preview);
     }
 
     _beginPresetEdit(segment) {
       if (!segment?.presetOnly) return;
-      const bindingKey = this._bindingKey();
-      if (this.presetEditOriginal?.bindingKey === bindingKey && this.presetEditOriginal?.segmentId === segment.id) return;
+      const scope = this._presets().some((entry) => entry.id === segment.id) ? "presets" : "binding";
+      const bindingKey = scope === "binding" ? this._bindingKey() : "";
+      if (this.presetEditOriginal?.scope === scope
+        && this.presetEditOriginal?.bindingKey === bindingKey
+        && this.presetEditOriginal?.segmentId === segment.id) return;
       this._discardPresetEdit();
-      this.presetEditOriginal = { bindingKey, segmentId: segment.id, segment: clone(segment) };
+      this.presetEditOriginal = { scope, bindingKey, segmentId: segment.id, segment: clone(segment) };
     }
 
     _discardPresetEdit() {
       const draft = this.presetEditOriginal;
       if (!draft) return;
-      const segments = this.data.bindings[draft.bindingKey] || [];
+      const segments = draft.scope === "presets"
+        ? this._presets()
+        : (this.data.bindings[draft.bindingKey] || []);
       const index = segments.findIndex((segment) => segment.id === draft.segmentId);
       if (index >= 0) segments[index] = clone(draft.segment);
       this.presetEditOriginal = null;
@@ -659,9 +1444,29 @@
       return segment;
     }
 
+    _applyPresetToTrail(target, preset) {
+      if (!target || target.presetOnly === true || !preset?.presetOnly) return false;
+      this.hooks.pushUndo("apply attack trail preset");
+      this._enterStaticEditPreview();
+      applyAttackTrailPresetStyle(target, preset);
+      this._updateGenerated(target);
+      this.segmentId = target.id;
+      if (!target.sticks.some((stick) => stick.id === this.stickId)) this.stickId = "";
+      this.picking = false;
+      this.processed.clear();
+      this.pathCache.clear();
+      this.hooks.markDirty();
+      this.render();
+      this.hooks.draw();
+      this.hooks.status(`已应用预设“${preset.name}”；${target.sticks.length} 根棍子的轨迹保持不变。`);
+      return true;
+    }
+
     _segment() {
       const segment = this._segments().find((entry) => entry.id === this.segmentId);
       if (segment) return segment;
+      const preset = this._presets().find((entry) => entry.id === this.segmentId);
+      if (preset) return preset;
       return this.segmentId === PRESET_SEGMENT_ID && !this._segments().length ? this._presetSegment() : null;
     }
 
@@ -675,9 +1480,52 @@
       return segment.sticks.filter((stick) => stick.frame === frame);
     }
 
+    _stickProgress(segment, stickIndex) {
+      if (!segment || stickIndex < 0 || stickIndex >= segment.sticks.length) return 1;
+      const state = this._pathState(segment);
+      const time = state.timing.times[stickIndex] ?? state.timing.times.at(-1) ?? 0;
+      return clamp(this._distanceAtTime(state, time) / Math.max(0.001, state.total), 0, 1, 1);
+    }
+
+    _frameSlice(segment = this._segment(), create = false) {
+      if (!segment) return null;
+      if (!segment.frameSlices && create) segment.frameSlices = {};
+      if (!segment.frameSlices) return null;
+      const key = String(this.hooks.selectedFrame());
+      if (!segment.frameSlices[key] && create) {
+        segment.frameSlices[key] = { enabled: true, tailProgress: 0, headProgress: 1 };
+      }
+      return segment.frameSlices[key] || null;
+    }
+
+    _toggleFrameSlice() {
+      const segment = this._materializePreset();
+      if (!segment || segment.sticks.length < 2) {
+        this.hooks.status("请先用至少两根棍子绘制完整轨迹。");
+        return;
+      }
+      this.hooks.pushUndo("toggle frame trail layer");
+      const key = String(this.hooks.selectedFrame());
+      if (segment.frameSlices?.[key]) {
+        delete segment.frameSlices[key];
+      } else {
+        const slice = this._frameSlice(segment, true);
+        slice.enabled = true;
+        slice.tailProgress = 0;
+        slice.headProgress = 1;
+      }
+      this.hooks.markDirty();
+      this.render();
+      this.hooks.draw();
+    }
+
     _defaultPresetName() {
-      const used = new Set(this._segments().map((segment) => String(segment.name || "").trim().toLocaleLowerCase()));
-      let number = Math.max(1, this._segments().length + 1);
+      const presets = [
+        ...this._presets(),
+        ...this._segments().filter((segment) => segment.presetOnly === true),
+      ];
+      const used = new Set(presets.map((segment) => String(segment.name || "").trim().toLocaleLowerCase()));
+      let number = Math.max(1, presets.length + 1);
       while (used.has(`拖尾预设 ${number}`.toLocaleLowerCase())) number += 1;
       return `拖尾预设 ${number}`;
     }
@@ -696,14 +1544,18 @@
       const key = this._bindingKey();
       const source = this._segment();
       if (!key || !source) return;
+      const sourceId = source.id;
       this.hooks.pushUndo("save attack trail preset");
       const style = clone(source);
       this._discardPresetEdit();
       const [profileId, animationId] = key.split("/");
       const presetName = String(name || "").trim().slice(0, 60) || this._defaultPresetName();
+      const existingPreset = this._presets().find((entry) => (
+        String(entry.name || "").trim().toLocaleLowerCase() === presetName.toLocaleLowerCase()
+      ));
       const segment = this._normalizeSegment({
         ...style,
-        id: randomId("trail"),
+        id: existingPreset?.id || randomId("trail"),
         name: presetName,
         profileId,
         animationId,
@@ -711,10 +1563,14 @@
         presetOnly: true,
         sticks: [],
       }, this._segments().length, key);
-      (this.data.bindings[key] ||= []).push(segment);
-      this.segmentId = segment.id;
-      this.stickId = "";
+      const saved = upsertAttackTrailPresetByName((this.data.presets ||= []), segment);
+      const sourceTrail = this._segments().find((entry) => entry.id === sourceId && entry.presetOnly !== true);
+      this.segmentId = sourceTrail?.id || segment.id;
+      if (sourceTrail && !sourceTrail.sticks.some((stick) => stick.id === this.stickId)) this.stickId = "";
       this.hooks.markDirty(); this.render(); this.hooks.draw();
+      this.hooks.status(`${saved.overwritten ? "已覆盖" : "已新建"}预设“${presetName}”${
+        sourceTrail ? `；当前 ${sourceTrail.sticks.length} 根棍子的轨迹保持选中。` : "。"
+      }`);
     }
 
     _deleteSegment() {
@@ -722,8 +1578,12 @@
       if (!segment || this._isPresetSegment(segment) || !window.confirm(`删除${segment.presetOnly ? "预设" : "拖尾段"}“${segment.name}”？`)) return;
       this.hooks.pushUndo("delete attack trail segment");
       this.presetEditOriginal = null;
-      this.data.bindings[this._bindingKey()] = this._segments().filter((entry) => entry.id !== segment.id);
-      this.segmentId = this._segments()[0]?.id || "";
+      if (segment.presetOnly && this._presets().some((entry) => entry.id === segment.id)) {
+        this.data.presets = this._presets().filter((entry) => entry.id !== segment.id);
+      } else {
+        this.data.bindings[this._bindingKey()] = this._segments().filter((entry) => entry.id !== segment.id);
+      }
+      this.segmentId = this._preferredSegment()?.id || "";
       this.stickId = this._segment()?.sticks[0]?.id || "";
       this.hooks.markDirty(); this.render(); this.hooks.draw();
     }
@@ -731,10 +1591,30 @@
     _editSegment(key, value) {
       const segment = this._materializePreset();
       if (!segment) return;
+      this._enterStaticEditPreview();
       this._beginPresetEdit(segment);
       segment[key] = value;
       this._updateGenerated(segment);
-      this.pathCache.clear(); this.processed.clear();
+      if ([
+        "totalDurationMs", "tailHeadSpeedRatio", "speedVariation", "stableSeed", "pathCacheSamples",
+      ].includes(key)) this.pathCache.clear();
+      if ([
+        "invertTexture", "colorMode", "color", "gradientStops", "bodyOpacityFloor", "bodyDetailStrength", "bodyWhiteThreshold",
+        "tailFadeStart", "coreEdge", "headLightBoost", "headWhitePreserve", "headWhiteLength",
+      ].includes(key)) this.processed.clear();
+      this.hooks.markDirty(); this.render(); this.hooks.draw();
+    }
+
+    _editMaterialLayer(layerId, key, value) {
+      const segment = this._materializePreset();
+      const material = segment?.materialLayers?.[layerId];
+      if (!segment || !material) return;
+      this._enterStaticEditPreview();
+      this._beginPresetEdit(segment);
+      material[key] = value;
+      if (["color", "invert", "threshold", "softness", "expansion"].includes(key) || (layerId === "breakup" && key === "strength")) {
+        this.processed.clear();
+      }
       this.hooks.markDirty(); this.render(); this.hooks.draw();
     }
 
@@ -744,6 +1624,7 @@
       this.hooks.pushUndo("change attack trail color mode");
       const segment = this._materializePreset();
       if (!segment) return;
+      this._enterStaticEditPreview();
       this._beginPresetEdit(segment);
       segment.colorMode = mode;
       if (mode === "gradient") {
@@ -811,6 +1692,7 @@
         this.gradientDrag = { pointerId: event.pointerId, undoPushed: false };
       } else {
         if (segment.gradientStops.length >= 16) return this.hooks.status("渐变最多支持 16 个颜色节点。", true);
+        this._enterStaticEditPreview();
         this._beginPresetEdit(segment);
         this.hooks.pushUndo("add attack trail gradient stop");
         const position = this._gradientPosition(event);
@@ -831,6 +1713,7 @@
       if (!this.gradientDrag || this.gradientDrag.pointerId !== event.pointerId) return;
       const segment = this._segment(), stop = this._gradientStop(segment);
       if (!segment || !stop) return;
+      this._enterStaticEditPreview();
       const position = this._gradientPosition(event);
       if (Math.abs(position - stop.position) < 0.0001) return;
       if (!this.gradientDrag.undoPushed) {
@@ -853,6 +1736,7 @@
       const segment = this._segment();
       const stop = this._gradientStop(segment);
       if (!stop) return;
+      this._enterStaticEditPreview();
       this._beginPresetEdit(segment);
       stop.color = normalizeColor(value, stop.color);
       this.processed.clear(); this.hooks.markDirty(); this._renderGradientEditor(this._segment()); this.hooks.draw();
@@ -863,6 +1747,7 @@
       const stop = this._gradientStop(segment);
       if (!segment || !stop) return;
       if (segment.gradientStops.length <= 2) return this.hooks.status("渐变至少保留两个颜色节点。", true);
+      this._enterStaticEditPreview();
       this.hooks.pushUndo("delete attack trail gradient stop");
       this._beginPresetEdit(segment);
       const oldIndex = segment.gradientStops.indexOf(stop);
@@ -871,27 +1756,11 @@
       this.processed.clear(); this.hooks.markDirty(); this.render(); this.hooks.draw();
     }
 
-    _chaseTimes(segment) {
-      const durationMs = Math.max(1, Math.round((this._timing(segment).times.at(-1) || 0.0001) * 1000));
-      const beforeMs = Math.round(durationMs * (1 - segment.beforeStopChaseMultiplier));
-      const afterMs = beforeMs > 0
-        ? Math.max(1, Math.round(beforeMs / Math.max(0.1, segment.afterStopChaseMultiplier)))
-        : 0;
-      return { durationMs, beforeMs, afterMs };
-    }
-
-    _editChaseTime(phase, rawValue) {
-      const segment = this._segment();
-      if (!segment) return;
-      const times = this._chaseTimes(segment);
-      if (phase === "before") {
-        const beforeMs = Math.round(clamp(rawValue, 0, times.durationMs, times.beforeMs));
-        this._editSegment("beforeStopChaseMultiplier", clamp(1 - beforeMs / times.durationMs, 0, 1, DEFAULT_BEFORE_CHASE_MULTIPLIER));
-        return;
-      }
-      if (times.beforeMs <= 0) return;
-      const afterMs = Math.round(clamp(rawValue, 1, 60000, times.afterMs || 1));
-      this._editSegment("afterStopChaseMultiplier", clamp(times.beforeMs / afterMs, 0.1, 20, DEFAULT_AFTER_CHASE_MULTIPLIER));
+    _effectiveTotalDurationMs(segment) {
+      const saved = Math.round(clamp(segment?.totalDurationMs, 0, 60000, 0));
+      if (saved > 0) return saved;
+      const frame = segment?.sticks?.[0]?.frame ?? this.hooks.selectedFrame();
+      return Math.max(1, Math.round(clamp(this.hooks.frameDurationMs?.(frame), 1, 60000, 1000 / 12)));
     }
 
     _toggleStickLayer() {
@@ -928,7 +1797,7 @@
         bottom = { x: next.bottom.x - 24, y: next.bottom.y };
       }
       const stick = this._normalizeStick({
-        id: randomId("stick"), frame, phaseMode: "auto",
+        id: randomId("stick"), frame, phaseMode: "auto", headFrame: true, headFrameMode: "auto",
         top, bottom,
         layer: previous?.layer || next?.layer || segment.layer,
         reverseDirection: previous?.reverseDirection ?? next?.reverseDirection ?? false,
@@ -936,6 +1805,9 @@
         tangentStrength: previous?.tangentStrength ?? next?.tangentStrength ?? 0.8,
       }, insertIndex);
       segment.sticks.splice(insertIndex, 0, stick);
+      if (segment.sticks.length === 1 && !(Number(segment.totalDurationMs) > 0)) {
+        segment.totalDurationMs = this._effectiveTotalDurationMs(segment);
+      }
       this._renumberAndAutoPhase(segment);
       this._updateGenerated(segment);
       this.stickId = stick.id;
@@ -952,8 +1824,38 @@
       segment.sticks = segment.sticks.filter((entry) => entry.id !== stick.id);
       this._renumberAndAutoPhase(segment);
       this._updateGenerated(segment);
-      this.stickId = this._frameSticks(segment)[0]?.id || "";
+      this.stickId = "";
       this.pathCache.clear(); this.hooks.markDirty(); this.render(); this.hooks.draw();
+    }
+
+    _toggleStickHeadFrame() {
+      const segment = this._segment();
+      const stick = this._stick();
+      if (!segment || !stick) return;
+      const index = segment.sticks.findIndex((entry) => entry.id === stick.id);
+      if (index < 0 || index >= segment.sticks.length - 1) return;
+      this.hooks.pushUndo("toggle attack trail head frame");
+      stick.headFrame = stick.headFrame === false;
+      stick.headFrameMode = "manual";
+      this._renumberAndAutoPhase(segment);
+      this._updateGenerated(segment);
+      this.pathCache.clear(); this.hooks.markDirty(); this.render(); this.hooks.draw();
+    }
+
+    _smoothSegment() {
+      const segment = this._segment();
+      if (!segment || segment.presetOnly || segment.sticks.length < 3) {
+        this.hooks.status("至少需要三根棍子才能平滑整段轨迹。");
+        return;
+      }
+      this.hooks.pushUndo("smooth attack trail");
+      segment.sticks = smoothTrailSticks(segment.sticks);
+      this._updateGenerated(segment);
+      this.pathCache.clear();
+      this.hooks.markDirty();
+      this.render();
+      this.hooks.draw();
+      this.hooks.status(`已平滑 ${segment.sticks.length} 根棍子：端点中心保持不动，中间路径、方向和棍长已自动连续化。`);
     }
 
     _editStick(key, value, manualPhase = false) {
@@ -967,8 +1869,15 @@
 
     _renumberAndAutoPhase(segment) {
       segment.sticks.forEach((stick, index) => { stick.order = index; });
+      if (segment.sticks.length) {
+        segment.sticks.forEach((stick, index) => {
+          if (stick.headFrameMode === "auto") stick.headFrame = index === segment.sticks.length - 1;
+        });
+        segment.sticks.at(-1).headFrame = true;
+      }
       const frames = new Map();
       for (const stick of segment.sticks) {
+        if (stick.headFrame === false) continue;
         (frames.get(stick.frame) || frames.set(stick.frame, []).get(stick.frame)).push(stick);
       }
       for (const sticks of frames.values()) {
@@ -1008,6 +1917,7 @@
         const result = await response.json();
         this.hooks.pushUndo("import attack trail texture");
         const segment = this._materializePreset();
+        this._enterStaticEditPreview();
         this._beginPresetEdit(segment);
         segment.texture = result.texture;
         this._updateGenerated(segment);
@@ -1019,6 +1929,45 @@
         this.hooks.status(`拖尾纹理导入失败：${error.message}`, true);
       } finally {
         this.els.attackTrailTextureFile.value = "";
+      }
+    }
+
+    async _uploadMaterialLayerTexture(layerId, file, uiPrefix) {
+      if (!file || !this._segment()) return;
+      if (file.type !== "image/png" && !file.name.toLowerCase().endsWith(".png")) {
+        this.hooks.status("材质图层目前仅支持 PNG。", true);
+        return;
+      }
+      try {
+        const data = await this._readDataUrl(file);
+        const response = await fetch("/api/attack-trail-texture", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            projectId: this.hooks.projectId(),
+            profileId: this.hooks.group().profileId,
+            animationId: this.hooks.group().name,
+            name: file.name,
+            data,
+          }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const result = await response.json();
+        this.hooks.pushUndo(`import ${layerId} attack trail texture`);
+        const segment = this._materializePreset();
+        this._enterStaticEditPreview();
+        this._beginPresetEdit(segment);
+        segment.materialLayers[layerId].texture = result.texture;
+        this.images.delete(result.texture.path);
+        this.processed.clear();
+        this.hooks.markDirty(); this.render(); this.hooks.draw();
+        this.hooks.status(`材质图层已替换为独立 PNG：${result.texture.path}`);
+      } catch (error) {
+        this.hooks.status(`材质图层导入失败：${error.message}`, true);
+      } finally {
+        if (uiPrefix && this.els[`attackTrail${uiPrefix}File`]) {
+          this.els[`attackTrail${uiPrefix}File`].value = "";
+        }
       }
     }
 
@@ -1043,6 +1992,7 @@
       if (rgba[3] < 8) return this.hooks.status("透明像素不接受取色；请点击角色的有效 Sprite 像素。", true);
       const color = `#${[rgba[0], rgba[1], rgba[2]].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
       const segment = this._materializePreset();
+      this._enterStaticEditPreview();
       this._beginPresetEdit(segment);
       segment.color = color;
       segment.colorMode = "solid";
@@ -1052,10 +2002,64 @@
     }
 
     _timing(segment) {
-      const absolute = segment.sticks.map((stick) => this.hooks.frameArrival(stick.frame, stick.framePhase));
-      for (let index = 1; index < absolute.length; index += 1) absolute[index] = Math.max(absolute[index], absolute[index - 1] + 0.0001);
-      const origin = absolute[0] || 0;
-      return { absolute, times: absolute.map((time) => time - origin) };
+      const sticks = segment.sticks;
+      const headIndices = this._usesFrameSlicesOnly()
+        ? sticks.map((_, index) => index)
+        : sticks.map((stick, index) => (stick.headFrame === false ? -1 : index)).filter((index) => index >= 0);
+      if (sticks.length && headIndices[0] !== 0) headIndices.unshift(0);
+      if (sticks.length > 1 && headIndices.at(-1) !== sticks.length - 1) headIndices.push(sticks.length - 1);
+      const headAbsolute = headIndices.map((index) => this.hooks.frameArrival(sticks[index].frame, sticks[index].framePhase));
+      for (let index = 1; index < headAbsolute.length; index += 1) {
+        headAbsolute[index] = Math.max(headAbsolute[index], headAbsolute[index - 1] + 0.0001);
+      }
+      const authoredOrigin = headAbsolute[0] || 0;
+      const origin = attackTrailLifecycleOrigin(sticks, this.hooks.frameArrival);
+      const totalDuration = this._effectiveTotalDurationMs(segment) / 1000;
+      const speedRatio = clamp(segment.tailHeadSpeedRatio, 0.01, 0.9, DEFAULT_TAIL_HEAD_SPEED_RATIO);
+      const motionDuration = Math.max(0.000001, totalDuration * speedRatio / (1 + speedRatio));
+      const tailDuration = Math.max(0.000001, totalDuration - motionDuration);
+      const authoredSpan = Math.max(0.0001, (headAbsolute.at(-1) || authoredOrigin) - authoredOrigin);
+      const headLocal = headAbsolute.map((time, index) => {
+        if (headAbsolute.length <= 1) return 0;
+        if (index === headAbsolute.length - 1) return motionDuration;
+        return motionDuration * clamp((time - authoredOrigin) / authoredSpan, 0, 1, 0);
+      });
+      const times = new Array(sticks.length).fill(headLocal[0] || 0);
+      for (let headIndex = 0; headIndex < headIndices.length - 1; headIndex += 1) {
+        const startIndex = headIndices[headIndex];
+        const endIndex = headIndices[headIndex + 1];
+        const startTime = headLocal[headIndex];
+        const endTime = headLocal[headIndex + 1];
+        for (let index = startIndex; index <= endIndex; index += 1) {
+          times[index] = startTime + (endTime - startTime) * (index - startIndex) / Math.max(1, endIndex - startIndex);
+        }
+      }
+      return {
+        absolute: times.map((time) => origin + time),
+        times,
+        headIndices,
+        origin,
+        motionDuration,
+        tailDuration,
+        totalDuration,
+      };
+    }
+
+    _headPathTime(segment, timing, localTime) {
+      let pathTime = timing.times[timing.headIndices[0] || 0] || 0;
+      for (const index of timing.headIndices) {
+        if (timing.times[index] > localTime + 0.000001) break;
+        pathTime = timing.times[index];
+      }
+      return pathTime;
+    }
+
+    _selectedGuidePreviewPathTime(segment, timing) {
+      if (this.hooks.selectedGuidePreviewActive?.() !== true || segment.id !== this.segmentId) return null;
+      const stick = this._stick();
+      if (!stick || (!this._usesFrameSlicesOnly() && stick.headFrame !== false) || stick.frame !== this.hooks.selectedFrame()) return null;
+      const index = segment.sticks.findIndex((entry) => entry.id === stick.id);
+      return index >= 0 ? timing.times[index] : null;
     }
 
     _pathState(segment) {
@@ -1113,6 +2117,45 @@
       return { top, bottom, center: { x: (top.x + bottom.x) / 2, y: (top.y + bottom.y) / 2 } };
     }
 
+    _widthPose(pose, segment) {
+      const dx = pose.bottom.x - pose.top.x;
+      const dy = pose.bottom.y - pose.top.y;
+      const authoredWidth = Math.max(0.001, Math.hypot(dx, dy));
+      const axis = { x: dx / authoredWidth, y: dy / authoredWidth };
+      const baseWidth = segment.widthMode === "fixed" ? segment.fixedWidth : authoredWidth;
+      const width = Math.max(0.001, baseWidth * segment.widthScale);
+      const center = {
+        x: pose.center.x + axis.x * width * 0.5 * segment.widthOffset,
+        y: pose.center.y + axis.y * width * 0.5 * segment.widthOffset,
+      };
+      return {
+        center,
+        top: { x: center.x - axis.x * width * 0.5, y: center.y - axis.y * width * 0.5 },
+        bottom: { x: center.x + axis.x * width * 0.5, y: center.y + axis.y * width * 0.5 },
+      };
+    }
+
+    _pathPivot(sticks) {
+      if (!sticks.length) return { x: 0, y: 0 };
+      const total = sticks.reduce((sum, stick) => {
+        const center = this._stickPose(stick).center;
+        return { x: sum.x + center.x, y: sum.y + center.y };
+      }, { x: 0, y: 0 });
+      return { x: total.x / sticks.length, y: total.y / sticks.length };
+    }
+
+    _pathScalePose(pose, segment, pivot) {
+      const transform = (point) => ({
+        x: pivot.x + (point.x - pivot.x) * segment.pathScaleX,
+        y: pivot.y + (point.y - pivot.y) * segment.pathScaleY,
+      });
+      return {
+        top: transform(pose.top),
+        bottom: transform(pose.bottom),
+        center: transform(pose.center),
+      };
+    }
+
     _stickPose(stick) {
       const top = stick.reverseDirection ? stick.bottom : stick.top;
       const bottom = stick.reverseDirection ? stick.top : stick.bottom;
@@ -1166,6 +2209,12 @@
       const phase = clamp((time - times[index]) / span, 0, 1, 0);
       return phase < 0.5 ? (sticks[index].layer || fallback) : (sticks[index + 1].layer || fallback);
     }
+    _triangleTouchesLayer(sticks, times, triangleTimes, fallback, layer) {
+      // A transition triangle belongs to both render passes. This one-cell
+      // overlap closes the antialias/occlusion seam without pulling the rest
+      // of the behind trail in front of the character.
+      return triangleTimes.some((time) => this._layerAtTime(sticks, times, time, fallback) === layer);
+    }
     _hermite(a, ta, b, tb, t) {
       const t2 = t * t, t3 = t2 * t, h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
       return { x: h00 * a.x + h10 * ta.x + h01 * b.x + h11 * tb.x, y: h00 * a.y + h10 * ta.y + h01 * b.y + h11 * tb.y };
@@ -1181,68 +2230,110 @@
       return samples[low][valueKey] + (samples[high][valueKey] - samples[low][valueKey]) * f;
     }
 
-    _drawSegment(segment, alpha, layer) {
+    _drawSegment(segment, alpha, layer, frameSlice = null, fixedPreviewElapsed = null) {
       const image = this.images.get(segment.texture.path);
       if (!image) {
         this.hooks.loadTexture(segment.texture).then((loaded) => { this.images.set(segment.texture.path, loaded); this.hooks.draw(); }).catch(() => {});
         return;
       }
       const state = this._pathState(segment);
-      const local = this.hooks.animationElapsed() - state.timing.absolute[0];
-      if (local < 0) return;
-      const duration = state.timing.times.at(-1);
-      const motionTime = Math.min(local, duration);
-      const currentDistance = this._distanceAtTime(state, motionTime);
-      const catchElapsed = Math.max(0, local - duration);
-      const animationTiming = this.hooks.animationTiming?.() || { duration: state.timing.absolute.at(-1), lastPlayableFrameStart: state.timing.absolute.at(-1) };
-      const lastArrival = state.timing.absolute.at(-1);
-      const finishAt = animationTiming.lastPlayableFrameStart > lastArrival + 0.0001
-        ? animationTiming.lastPlayableFrameStart
-        : Math.max(lastArrival + 0.0001, animationTiming.duration);
-      const forcedFinishLocal = Math.max(duration + 0.0001, finishAt - state.timing.absolute[0]);
-      if (local >= forcedFinishLocal) return;
-      const forcedPhase = clamp((local - duration) / Math.max(0.0001, forcedFinishLocal - duration), 0, 1, 0);
-      const forcedDistance = currentDistance * forcedPhase * forcedPhase * (3 - 2 * forcedPhase);
-      const averageFrontSpeed = state.total / Math.max(0.0001, duration);
-      const tails = this._tailDistances(state, segment, currentDistance, catchElapsed, duration, forcedDistance);
+      let currentPathTime, currentDistance, collapsePhase, tails;
+      if (Number.isFinite(fixedPreviewElapsed)) {
+        const totalDuration = DRAW_PREVIEW_DURATION_MS / 1000;
+        if (fixedPreviewElapsed < 0 || fixedPreviewElapsed >= totalDuration) return;
+        const ratio = DRAW_PREVIEW_TAIL_HEAD_SPEED_RATIO;
+        const headDuration = totalDuration * ratio / (1 + ratio);
+        const tailDuration = totalDuration - headDuration;
+        const headProgress = clamp(fixedPreviewElapsed / Math.max(0.000001, headDuration), 0, 1, 0);
+        currentDistance = state.total * headProgress;
+        currentPathTime = this._timeAtDistance(state, currentDistance);
+        const tailProgress = clamp((fixedPreviewElapsed - headDuration) / Math.max(0.000001, tailDuration), 0, 1, 0);
+        collapsePhase = tailProgress;
+        tails = this._tailDistances(state, currentDistance, tailProgress);
+      } else if (frameSlice) {
+        const tailProgress = clamp(frameSlice.tailProgress, 0, 1, 0);
+        const headProgress = clamp(frameSlice.headProgress, tailProgress, 1, 1);
+        currentDistance = state.total * headProgress;
+        currentPathTime = this._timeAtDistance(state, currentDistance);
+        collapsePhase = 0;
+        tails = new Array(Math.max(4, segment.tailSamples || 5)).fill(state.total * tailProgress);
+        if (currentDistance - state.total * tailProgress <= 0.01) return;
+      } else {
+        const local = this.hooks.animationElapsed() - state.timing.absolute[0];
+        const duration = state.timing.motionDuration;
+        const totalDuration = state.timing.totalDuration;
+        if (local < 0 || local >= totalDuration) return;
+        const motionTime = Math.min(local, duration);
+        const selectedGuidePathTime = this._selectedGuidePreviewPathTime(segment, state.timing);
+        currentPathTime = Number.isFinite(selectedGuidePathTime)
+          ? selectedGuidePathTime
+          : this._headPathTime(segment, state.timing, motionTime);
+        currentDistance = this._distanceAtTime(state, currentPathTime);
+        const tailProgress = clamp((local - duration) / Math.max(0.000001, state.timing.tailDuration), 0, 1, 0);
+        collapsePhase = tailProgress;
+        tails = this._tailDistances(state, currentDistance, tailProgress);
+      }
       // A fully collapsed trail is only the mesh's zero-area cross-section.
       // Do not expose that implementation detail as a visible line at either
       // the beginning or the end of the effect.
       if (currentDistance <= 0.01) return;
-      const capCatchDuration = duration * Math.max(0, 1 - segment.beforeStopChaseMultiplier)
-        / Math.max(0.0001, segment.afterStopChaseMultiplier);
-      if (local > duration + capCatchDuration + 0.05) return;
       const columns = Math.min(192, Math.max(16, Math.round(segment.pathColumns) * 2));
       // Tail speed samples describe lag only. They are deliberately not the
       // visible cross-section tessellation: five mesh rows turn a curved head
       // into a diamond-shaped point.
       const rows = Math.max(TRAIL_MESH_WIDTH_ROWS, tails.length);
-      const currentPathTime = this._timeAtDistance(state, currentDistance);
-      const currentPose = this._pose(segment.sticks, state.timing.times, currentPathTime);
-      const headDirection = this._directionAtTime(segment.sticks, state.timing.times, currentPathTime);
+      const pathPivot = this._pathPivot(segment.sticks);
+      const currentPose = this._widthPose(
+        this._pathScalePose(
+          this._pose(segment.sticks, state.timing.times, currentPathTime),
+          segment,
+          pathPivot,
+        ),
+        segment,
+      );
+      const rawHeadDirection = this._directionAtTime(segment.sticks, state.timing.times, currentPathTime);
+      const scaledHeadDirection = {
+        x: rawHeadDirection.x * segment.pathScaleX,
+        y: rawHeadDirection.y * segment.pathScaleY,
+      };
+      const scaledHeadLength = Math.max(0.001, Math.hypot(scaledHeadDirection.x, scaledHeadDirection.y));
+      const headDirection = {
+        x: scaledHeadDirection.x / scaledHeadLength,
+        y: scaledHeadDirection.y / scaledHeadLength,
+      };
       const headHalfWidth = Math.hypot(currentPose.bottom.x - currentPose.top.x, currentPose.bottom.y - currentPose.top.y) * 0.5;
       // Preserve the complete brush in the terminal cap. Its depth must keep
       // the curved hard head from folding through the authored rough tail.
       const terminalCapDepth = Math.max(
         2,
         headHalfWidth * (Math.abs(segment.headCurvature) + FINAL_HEAD_CAP_MARGIN_RATIO),
-      );
+      ) * (1 - collapsePhase);
       const terminalCapBlend = this._terminalHeadCapBlend(
         currentDistance,
         tails,
         terminalCapDepth,
-        catchElapsed,
+        collapsePhase,
       );
       const grid = [], gridTimes = [];
+      const centerTailDistance = this._meshTailDistance(tails, 0.5);
       for (let row = 0; row < rows; row += 1) {
         const v = row / (rows - 1);
-        const rowTailDistance = this._meshTailDistance(tails, v);
+        const authoredTailDistance = this._meshTailDistance(tails, v);
+        const rowTailDistance = centerTailDistance
+          + (authoredTailDistance - centerTailDistance) * segment.widthChaseStrength;
         const line = [], lineTimes = [];
         for (let column = 0; column < columns; column += 1) {
           const u = column / (columns - 1); let localPoint, sampleTime;
           const distance = currentDistance + (rowTailDistance - currentDistance) * u;
           sampleTime = this._timeAtDistance(state, distance);
-          const pose = this._pose(segment.sticks, state.timing.times, sampleTime);
+          const pose = this._widthPose(
+            this._pathScalePose(
+              this._pose(segment.sticks, state.timing.times, sampleTime),
+              segment,
+              pathPivot,
+            ),
+            segment,
+          );
           localPoint = { x: pose.top.x + (pose.bottom.x - pose.top.x) * v, y: pose.top.y + (pose.bottom.y - pose.top.y) * v };
           const headProfile = this._headCurveProfile(v) * this._headCurveBlend(u);
           const bulge = segment.headCurvature * headHalfWidth * headProfile;
@@ -1268,15 +2359,114 @@
         grid.push(line);
         gridTimes.push(lineTimes);
       }
-      const texture = this._processedTexture(image, segment);
-      const ctx = this.hooks.ctx;
-      if (this._drawGpuMesh(texture, grid, gridTimes, segment, state, layer, ctx.canvas.width, ctx.canvas.height)) {
-        ctx.save();
-        ctx.globalAlpha = alpha;
-        ctx.drawImage(this.gpuCanvas, 0, 0);
-        ctx.restore();
-        return;
+      const materialImages = {};
+      for (const [layerId, material] of Object.entries(segment.materialLayers || {})) {
+        if (material?.enabled === false || !material?.texture?.path) continue;
+        const materialImage = this.images.get(material.texture.path);
+        if (!materialImage) {
+          this.hooks.loadTexture(material.texture).then((loaded) => {
+            this.images.set(material.texture.path, loaded);
+            this.hooks.draw();
+          }).catch(() => {});
+          continue;
+        }
+        materialImages[layerId] = materialImage;
       }
+      const breakupMask = segment.materialLayers?.breakup;
+      const bodyTexture = this._processedBodyTexture(
+        image,
+        segment,
+        breakupMask?.enabled !== false ? materialImages.breakup : null,
+        breakupMask,
+      );
+      const materialTextures = {};
+      for (const layerId of ["streaks", "core"]) {
+        const material = segment.materialLayers?.[layerId];
+        const materialImage = materialImages[layerId];
+        if (!material || !materialImage) continue;
+        materialTextures[layerId] = this._processedMaterialLayerTexture(materialImage, material, segment, layerId, image);
+      }
+      const ctx = this.hooks.ctx;
+      if (this.gpuRenderer && !this.gpuRenderer.gl.isContextLost()) {
+        const compositeGpuSurface = (surface, compositeOperation, passAlpha, filter = "none") => {
+          ctx.save();
+          ctx.globalCompositeOperation = compositeOperation;
+          ctx.globalAlpha = clamp(passAlpha, 0, 1, 0);
+          ctx.filter = filter;
+          ctx.drawImage(surface, 0, 0);
+          ctx.restore();
+          return true;
+        };
+        const renderGpuTexture = (texture) => (
+          this._drawGpuMesh(texture, grid, gridTimes, segment, state, layer, ctx.canvas.width, ctx.canvas.height)
+        );
+        let rendered = false;
+        const coreMaterial = segment.materialLayers?.core;
+        let coreSurface = null;
+        let glowSurface = null;
+        if (materialTextures.core && coreMaterial?.enabled !== false && renderGpuTexture(materialTextures.core)) {
+          if (this.gpuCoreCanvas.width !== this.gpuCanvas.width || this.gpuCoreCanvas.height !== this.gpuCanvas.height) {
+            this.gpuCoreCanvas.width = this.gpuCanvas.width;
+            this.gpuCoreCanvas.height = this.gpuCanvas.height;
+            this.gpuGlowCanvas.width = this.gpuCanvas.width;
+            this.gpuGlowCanvas.height = this.gpuCanvas.height;
+          }
+          this.gpuCoreContext.setTransform(1, 0, 0, 1, 0, 0);
+          this.gpuCoreContext.globalCompositeOperation = "copy";
+          this.gpuCoreContext.drawImage(this.gpuCanvas, 0, 0);
+          coreSurface = this.gpuCoreCanvas;
+          this.gpuGlowContext.setTransform(1, 0, 0, 1, 0, 0);
+          this.gpuGlowContext.globalCompositeOperation = "copy";
+          this.gpuGlowContext.drawImage(coreSurface, 0, 0);
+          this.gpuGlowContext.globalCompositeOperation = "lighter";
+          this.gpuGlowContext.drawImage(coreSurface, 0, 0);
+          this.gpuGlowContext.globalCompositeOperation = "source-in";
+          this.gpuGlowContext.fillStyle = segment.glowColor;
+          this.gpuGlowContext.fillRect(0, 0, this.gpuGlowCanvas.width, this.gpuGlowCanvas.height);
+          this.gpuGlowContext.globalCompositeOperation = "source-over";
+          glowSurface = this.gpuGlowCanvas;
+        }
+        if (renderGpuTexture(bodyTexture)) {
+          rendered = compositeGpuSurface(this.gpuCanvas, "source-over", alpha) || rendered;
+        }
+        const streaks = segment.materialLayers?.streaks;
+        if (materialTextures.streaks && streaks?.enabled !== false && streaks.strength > 0
+          && renderGpuTexture(materialTextures.streaks)) {
+          rendered = compositeGpuSurface(
+            this.gpuCanvas,
+            this._blendCompositeOperation(streaks.blendMode),
+            alpha * streaks.strength,
+          ) || rendered;
+        }
+        // The blurred fluorescent halo and the sharp bright edge are separate
+        // controls even though they share the same authored contour texture.
+        if (coreSurface && glowSurface && coreMaterial?.enabled !== false) {
+          if (segment.glowStrength > 0 && segment.glowRadius > 0) {
+            const glowRadius = segment.glowRadius * this.hooks.dpr();
+            rendered = compositeGpuSurface(
+              glowSurface,
+              "lighter",
+              alpha * segment.glowStrength * 0.6,
+              `blur(${glowRadius}px)`,
+            ) || rendered;
+            rendered = compositeGpuSurface(
+              glowSurface,
+              "lighter",
+              alpha * segment.glowStrength * 0.95,
+              `blur(${Math.max(1, glowRadius * 0.42)}px)`,
+            ) || rendered;
+          }
+          if (coreMaterial.strength > 0) {
+            rendered = compositeGpuSurface(
+              coreSurface,
+              this._blendCompositeOperation(coreMaterial.blendMode),
+              alpha * coreMaterial.strength,
+            ) || rendered;
+          }
+        }
+        if (rendered) return;
+      }
+      const texture = bodyTexture;
       if (this.meshCanvas.width !== ctx.canvas.width || this.meshCanvas.height !== ctx.canvas.height) {
         this.meshCanvas.width = ctx.canvas.width;
         this.meshCanvas.height = ctx.canvas.height;
@@ -1314,8 +2504,13 @@
         ];
         let cellVisible = false;
         for (const triangle of triangles) {
-          const triangleTime = triangle.times.reduce((sum, value) => sum + value, 0) / triangle.times.length;
-          if (this._layerAtTime(segment.sticks, state.timing.times, triangleTime, segment.layer) !== layer) continue;
+          if (!this._triangleTouchesLayer(
+            segment.sticks,
+            state.timing.times,
+            triangle.times,
+            segment.layer,
+            layer,
+          )) continue;
           cellVisible = true;
           this._fillTriangle(maskCtx, triangle.target);
           this._drawTriangle(meshCtx, texture, triangle.source, triangle.target);
@@ -1351,21 +2546,13 @@
       ctx.restore();
     }
 
-    _tailDistances(state, segment, currentDistance, catchElapsed, duration, forcedDistance = 0) {
-      const averageFrontSpeed = state.total / Math.max(0.0001, duration);
-      const lagRatio = 1 - segment.beforeStopChaseMultiplier;
+    _tailDistances(state, currentDistance, tailProgress) {
+      const progress = clamp(tailProgress, 0, 1, 0);
       const distances = state.speeds.map((factor) => {
-        // The chase controls longitudinal compression of the whole brush.
-        // Width samples only add a restrained material wobble; allowing their
-        // full raw spread turns the upper/lower boundary into a round balloon.
         const widthFactor = 1 + (factor - 1) * TAIL_WIDTH_SPEED_INFLUENCE;
-        const progressMultiplier = clamp(1 - lagRatio * widthFactor, 0, 1, 0);
-        const beforeProgress = progressMultiplier * currentDistance;
-        const endpointProgress = progressMultiplier * state.total;
-        const chased = catchElapsed > 0
-          ? endpointProgress + averageFrontSpeed * segment.afterStopChaseMultiplier * widthFactor * catchElapsed
-          : beforeProgress;
-        return Math.min(currentDistance, Math.max(chased, forcedDistance));
+        const endpointSafeWobble = (widthFactor - 1) * 4 * progress * (1 - progress);
+        const tailProgress = clamp(progress + endpointSafeWobble, 0, 1, progress);
+        return Math.min(currentDistance, state.total * tailProgress);
       });
       return this._guardTailEdgeProgress(distances);
     }
@@ -1390,8 +2577,8 @@
       return tails[index] + (tails[index + 1] - tails[index]) * smoothPhase;
     }
 
-    _terminalHeadCapBlend(currentDistance, tails, capDepth, catchElapsed) {
-      if (catchElapsed <= 0) return 0;
+    _terminalHeadCapBlend(currentDistance, tails, capDepth, collapsePhase) {
+      if (collapsePhase <= 0 || capDepth <= 0.001) return 0;
       const maximumLag = tails.reduce(
         (maximum, distance) => Math.max(maximum, Math.abs(currentDistance - distance)),
         0,
@@ -1529,8 +2716,13 @@
       const indices = new Uint16Array((rows - 1) * (columns - 1) * 6);
       let indexOffset = 0;
       const appendTriangle = (a, b, c, timeA, timeB, timeC) => {
-        const sampleTime = (timeA + timeB + timeC) / 3;
-        if (this._layerAtTime(segment.sticks, state.timing.times, sampleTime, segment.layer) !== layer) return;
+        if (!this._triangleTouchesLayer(
+          segment.sticks,
+          state.timing.times,
+          [timeA, timeB, timeC],
+          segment.layer,
+          layer,
+        )) return;
         indices[indexOffset++] = a;
         indices[indexOffset++] = b;
         indices[indexOffset++] = c;
@@ -1572,7 +2764,11 @@
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, renderer.indexBuffer);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices.subarray(0, indexOffset), gl.DYNAMIC_DRAW);
       if (indexOffset) gl.drawElements(gl.TRIANGLES, indexOffset, gl.UNSIGNED_SHORT, 0);
-      gl.flush();
+      // Three material passes reuse this offscreen WebGL canvas immediately.
+      // Wait for each pass before Canvas2D snapshots it, otherwise the browser
+      // may occasionally composite the next cleared pass and make the trail
+      // appear to flicker or disappear after a UI redraw/scroll.
+      gl.finish();
       return true;
     }
 
@@ -1593,30 +2789,235 @@
       context.fill();
     }
 
-    _processedTexture(image, segment) {
-      const key = `${segment.texture.assetHash}:${segment.colorMode}:${segment.color}:${JSON.stringify(segment.gradientStops)}:${segment.tailFadeStart}`;
+    _blendCompositeOperation(value) {
+      return {
+        add: "lighter",
+        screen: "screen",
+        normal: "source-over",
+        multiply: "multiply",
+      }[normalizeBlendMode(value)] || "lighter";
+    }
+
+    _previewTextureDimensions(image) {
+      const width = Math.max(1, Number(image?.width || 1));
+      const height = Math.max(1, Number(image?.height || 1));
+      const scale = Math.min(1, PREVIEW_TEXTURE_MAX_SIZE / Math.max(width, height));
+      return {
+        width: Math.max(1, Math.round(width * scale)),
+        height: Math.max(1, Math.round(height * scale)),
+      };
+    }
+
+    _processedBodyTexture(image, segment, maskImage = null, maskMaterial = null) {
+      const key = [
+        "body",
+        segment.texture.assetHash,
+        segment.texture.path,
+        segment.invertTexture === true,
+        segment.colorMode,
+        segment.color,
+        JSON.stringify(segment.gradientStops),
+        segment.bodyOpacityFloor,
+        segment.bodyDetailStrength,
+        segment.bodyWhiteThreshold,
+        segment.tailFadeStart,
+        maskMaterial?.enabled !== false && maskImage ? maskMaterial.texture.assetHash || maskMaterial.texture.path : "",
+        maskMaterial?.enabled !== false && maskImage ? maskMaterial.strength : "",
+        maskMaterial?.enabled !== false && maskImage ? maskMaterial.invert === true : "",
+        maskMaterial?.enabled !== false && maskImage ? maskMaterial.threshold : "",
+        maskMaterial?.enabled !== false && maskImage ? maskMaterial.softness : "",
+        maskMaterial?.enabled !== false && maskImage ? maskMaterial.expansion : "",
+      ].join(":");
       if (this.processed.has(key)) return this.processed.get(key);
-      const canvas = document.createElement("canvas"); canvas.width = image.width; canvas.height = image.height;
-      const context = canvas.getContext("2d", { willReadFrequently: true }); context.drawImage(image, 0, 0);
-      const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+      const previewSize = this._previewTextureDimensions(image);
+      const sourceCanvas = document.createElement("canvas");
+      sourceCanvas.width = previewSize.width;
+      sourceCanvas.height = previewSize.height;
+      const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+      sourceContext.drawImage(image, 0, 0);
+      const pixels = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+      let maskPixels = null;
+      if (maskImage && maskMaterial?.enabled !== false) {
+        const maskCanvas = document.createElement("canvas");
+        maskCanvas.width = previewSize.width;
+        maskCanvas.height = previewSize.height;
+        const maskContext = maskCanvas.getContext("2d", { willReadFrequently: true });
+        maskContext.drawImage(maskImage, 0, 0);
+        maskPixels = maskContext.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+      }
+      const body = document.createElement("canvas");
+      body.width = previewSize.width;
+      body.height = previewSize.height;
+      const bodyContext = body.getContext("2d", { willReadFrequently: true });
+      const bodyPixels = bodyContext.createImageData(body.width, body.height);
       const solidTint = colorChannels(segment.color);
       for (let index = 0; index < pixels.data.length; index += 4) {
-        if (segment.colorMode !== "original") {
-          const pixel = index / 4;
-          const y = Math.floor(pixel / canvas.width);
-          const gradientPosition = canvas.height <= 1 ? 0.5 : 1 - y / (canvas.height - 1);
-          const tint = segment.colorMode === "gradient" ? this._gradientColorAt(segment.gradientStops, gradientPosition) : solidTint;
-          const luma = (pixels.data[index] * 0.2126 + pixels.data[index + 1] * 0.7152 + pixels.data[index + 2] * 0.0722) / 255;
-          const detail = 0.52 + 0.48 * luma;
-          pixels.data[index] = tint[0] * detail; pixels.data[index + 1] = tint[1] * detail; pixels.data[index + 2] = tint[2] * detail;
-          pixels.data[index + 3] = pixels.data[index + 3] * luma;
-        }
-        const x = (index / 4) % canvas.width;
-        const u = canvas.width <= 1 ? 0 : x / (canvas.width - 1);
+        const pixel = index / 4;
+        const x = pixel % sourceCanvas.width;
+        const y = Math.floor(pixel / sourceCanvas.width);
+        const u = sourceCanvas.width <= 1 ? 0 : x / (sourceCanvas.width - 1);
+        const v = sourceCanvas.height <= 1 ? 0.5 : y / (sourceCanvas.height - 1);
+        const sourceLuma = (pixels.data[index] * 0.2126 + pixels.data[index + 1] * 0.7152 + pixels.data[index + 2] * 0.0722) / 255;
+        const luma = segment.invertTexture === true ? 1 - sourceLuma : sourceLuma;
         const fadeU = clamp((u - segment.tailFadeStart) / Math.max(0.001, 1 - segment.tailFadeStart), 0, 1, 0);
-        pixels.data[index + 3] = pixels.data[index + 3] * (1 - Math.pow(fadeU, TAIL_ALPHA_EXPONENT));
+        const fade = 1 - Math.pow(fadeU, TAIL_ALPHA_EXPONENT);
+        const sourceAlpha = pixels.data[index + 3] / 255;
+        let breakupAlpha = 1;
+        if (maskPixels) {
+          const maskX = Math.min(maskPixels.width - 1, Math.round(u * Math.max(0, maskPixels.width - 1)));
+          const maskY = Math.min(maskPixels.height - 1, Math.round(v * Math.max(0, maskPixels.height - 1)));
+          const maskLumaAt = (sampleY) => {
+            const sampleIndex = (sampleY * maskPixels.width + maskX) * 4;
+            return (
+              maskPixels.data[sampleIndex] * 0.2126
+              + maskPixels.data[sampleIndex + 1] * 0.7152
+              + maskPixels.data[sampleIndex + 2] * 0.0722
+            ) / 255;
+          };
+          const expansionPixels = Math.round(maskMaterial.expansion * Math.max(0, maskPixels.height - 1));
+          let rawMask = maskLumaAt(maskY);
+          if (expansionPixels > 0) {
+            rawMask = Math.max(
+              rawMask,
+              maskLumaAt(Math.max(0, maskY - expansionPixels)),
+              maskLumaAt(Math.min(maskPixels.height - 1, maskY + expansionPixels)),
+            );
+          }
+          const rawMaskLuma = maskMaterial.invert === true ? 1 - rawMask : rawMask;
+          const maskLuma = maskResponse(rawMaskLuma, maskMaterial.threshold, maskMaterial.softness);
+          breakupAlpha = 1 - clamp(maskMaterial.strength, 0, 1, 0.72) * (1 - maskLuma);
+        }
+        if (segment.colorMode !== "original") {
+          const gradientPosition = sourceCanvas.height <= 1 ? 0.5 : 1 - y / (sourceCanvas.height - 1);
+          const tint = segment.colorMode === "gradient" ? this._gradientColorAt(segment.gradientStops, gradientPosition) : solidTint;
+          const authoredDetail = 0.44 + 0.5 * luma;
+          const detail = 1 + (authoredDetail - 1) * segment.bodyDetailStrength;
+          const authoredWhite = segment.bodyWhiteThreshold < 0.999
+            ? smoothstep(segment.bodyWhiteThreshold, Math.min(1, segment.bodyWhiteThreshold + 0.18), luma)
+            : 0;
+          const headWhite = authoredWhite * (1 - smoothstep(
+            segment.headWhiteLength * 0.72,
+            Math.max(0.0001, segment.headWhiteLength),
+            u,
+          ));
+          const whiteAmount = Math.max(headWhite, authoredWhite * segment.bodyDetailStrength);
+          bodyPixels.data[index] = tint[0] * detail * (1 - whiteAmount) + 255 * whiteAmount;
+          bodyPixels.data[index + 1] = tint[1] * detail * (1 - whiteAmount) + 255 * whiteAmount;
+          bodyPixels.data[index + 2] = tint[2] * detail * (1 - whiteAmount) + 255 * whiteAmount;
+          const bodyMask = segment.bodyOpacityFloor + (1 - segment.bodyOpacityFloor) * luma;
+          bodyPixels.data[index + 3] = 255 * sourceAlpha * bodyMask * fade * breakupAlpha;
+        } else {
+          bodyPixels.data[index] = segment.invertTexture === true ? 255 - pixels.data[index] : pixels.data[index];
+          bodyPixels.data[index + 1] = segment.invertTexture === true ? 255 - pixels.data[index + 1] : pixels.data[index + 1];
+          bodyPixels.data[index + 2] = segment.invertTexture === true ? 255 - pixels.data[index + 2] : pixels.data[index + 2];
+          bodyPixels.data[index + 3] = 255 * sourceAlpha * fade * breakupAlpha;
+        }
       }
-      context.putImageData(pixels, 0, 0); this.processed.set(key, canvas); return canvas;
+      bodyContext.putImageData(bodyPixels, 0, 0);
+      this.processed.set(key, body);
+      return body;
+    }
+
+    _processedMaterialLayerTexture(image, material, segment, layerId, bodyImage = null) {
+      const key = [
+        "material",
+        layerId,
+        material.texture.assetHash,
+        material.texture.path,
+        material.color,
+        material.invert === true,
+        material.threshold,
+        material.softness,
+        material.expansion,
+        segment.tailFadeStart,
+        layerId === "core" ? segment.coreEdge : "",
+        layerId === "core" ? segment.headLightBoost : "",
+        layerId === "streaks" ? segment.headWhitePreserve : "",
+        layerId === "streaks" ? segment.headWhiteLength : "",
+        layerId === "streaks" ? segment.bodyWhiteThreshold : "",
+        layerId === "streaks" ? segment.texture.assetHash || segment.texture.path : "",
+      ].join(":");
+      if (this.processed.has(key)) return this.processed.get(key);
+      const previewSize = this._previewTextureDimensions(image);
+      const sourceCanvas = document.createElement("canvas");
+      sourceCanvas.width = previewSize.width;
+      sourceCanvas.height = previewSize.height;
+      const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+      sourceContext.drawImage(image, 0, 0);
+      const pixels = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+      const output = document.createElement("canvas");
+      output.width = previewSize.width;
+      output.height = previewSize.height;
+      const outputContext = output.getContext("2d", { willReadFrequently: true });
+      const outputPixels = outputContext.createImageData(output.width, output.height);
+      const tint = colorChannels(material.color);
+      let bodyPixels = null;
+      if (layerId === "streaks" && bodyImage && segment.headWhitePreserve > 0) {
+        const bodyCanvas = document.createElement("canvas");
+        bodyCanvas.width = previewSize.width;
+        bodyCanvas.height = previewSize.height;
+        const bodyContext = bodyCanvas.getContext("2d", { willReadFrequently: true });
+        bodyContext.drawImage(bodyImage, 0, 0, bodyCanvas.width, bodyCanvas.height);
+        bodyPixels = bodyContext.getImageData(0, 0, bodyCanvas.width, bodyCanvas.height);
+      }
+      const sampleLuma = (sampleIndex) => {
+        const sourceLuma = (
+          pixels.data[sampleIndex] * 0.2126
+          + pixels.data[sampleIndex + 1] * 0.7152
+          + pixels.data[sampleIndex + 2] * 0.0722
+        ) / 255;
+        return material.invert === true ? 1 - sourceLuma : sourceLuma;
+      };
+      const expandedLuma = (x, y) => {
+        const expansionPixels = Math.round(material.expansion * Math.max(0, sourceCanvas.height - 1));
+        const lumaAt = (sampleY) => sampleLuma((sampleY * sourceCanvas.width + x) * 4);
+        let value = lumaAt(y);
+        if (expansionPixels > 0) {
+          value = Math.max(
+            value,
+            lumaAt(Math.max(0, y - expansionPixels)),
+            lumaAt(Math.min(sourceCanvas.height - 1, y + expansionPixels)),
+          );
+        }
+        return value;
+      };
+      for (let index = 0; index < pixels.data.length; index += 4) {
+        const pixel = index / 4;
+        const x = pixel % sourceCanvas.width;
+        const y = Math.floor(pixel / sourceCanvas.width);
+        const u = sourceCanvas.width <= 1 ? 0 : x / (sourceCanvas.width - 1);
+        const fadeU = clamp((u - segment.tailFadeStart) / Math.max(0.001, 1 - segment.tailFadeStart), 0, 1, 0);
+        const fade = 1 - Math.pow(fadeU, TAIL_ALPHA_EXPONENT);
+        const sourceAlpha = pixels.data[index + 3] / 255;
+        let luma = maskResponse(expandedLuma(x, y), material.threshold, material.softness);
+        if (layerId === "core" && segment.coreEdge !== "top") {
+          const mirroredLuma = maskResponse(expandedLuma(x, sourceCanvas.height - 1 - y), material.threshold, material.softness);
+          luma = segment.coreEdge === "both" ? Math.max(luma, mirroredLuma) : mirroredLuma;
+        }
+        const headBoost = layerId === "core"
+          ? 1 + segment.headLightBoost * (1 - smoothstep(0, 0.24, u))
+          : 1;
+        let headWhiteProtection = 0;
+        if (bodyPixels && u <= segment.headWhiteLength) {
+          const bodyLuma = (
+            bodyPixels.data[index] * 0.2126
+            + bodyPixels.data[index + 1] * 0.7152
+            + bodyPixels.data[index + 2] * 0.0722
+          ) / 255;
+          const alongHead = 1 - smoothstep(segment.headWhiteLength * 0.72, segment.headWhiteLength, u);
+          headWhiteProtection = segment.headWhitePreserve
+            * alongHead
+            * smoothstep(segment.bodyWhiteThreshold, Math.min(1, segment.bodyWhiteThreshold + 0.18), bodyLuma);
+        }
+        const layerAlpha = clamp(sourceAlpha * luma * fade * headBoost * (1 - headWhiteProtection), 0, 1, 0);
+        outputPixels.data[index] = tint[0];
+        outputPixels.data[index + 1] = tint[1];
+        outputPixels.data[index + 2] = tint[2];
+        outputPixels.data[index + 3] = 255 * layerAlpha;
+      }
+      outputContext.putImageData(outputPixels, 0, 0);
+      this.processed.set(key, output);
+      return output;
     }
 
     _drawTriangle(context, image, source, target) {
@@ -1647,30 +3048,99 @@
     _normalizeData(raw) {
       const bindings = {};
       const sourceSchema = Math.max(0, Math.round(Number(raw?.schemaVersion || 0)));
-      for (const [key, values] of Object.entries(raw?.bindings || {})) if (Array.isArray(values) && key.includes("/")) bindings[key] = values.map((value, index) => this._normalizeSegment(value, index, key, sourceSchema));
-      const presetTexture = raw?.presetTexture?.path
-        ? { ...DEFAULT_PRESET_TEXTURE, ...clone(raw.presetTexture) }
-        : clone(DEFAULT_PRESET_TEXTURE);
-      return { schemaVersion: ATTACK_TRAIL_SCHEMA_VERSION, presetTexture, bindings };
+      const presets = [];
+      const presetIds = new Set();
+      const addPreset = (value, key = "preset/global") => {
+        const preset = this._normalizeSegment({
+          ...clone(value || {}),
+          generated: false,
+          presetOnly: true,
+          sticks: [],
+        }, presets.length, key, sourceSchema);
+        if (presetIds.has(preset.id)) return;
+        presetIds.add(preset.id);
+        presets.push(preset);
+      };
+      for (const preset of Array.isArray(raw?.presets) ? raw.presets : []) {
+        addPreset(preset, `${preset?.profileId || "preset"}/${preset?.animationId || "global"}`);
+      }
+      for (const [key, values] of Object.entries(raw?.bindings || {})) {
+        if (!Array.isArray(values) || !key.includes("/")) continue;
+        const segments = [];
+        for (const value of values) {
+          const segment = this._normalizeSegment(value, segments.length, key, sourceSchema);
+          if (segment.presetOnly) addPreset(segment, key);
+          else segments.push(segment);
+        }
+        if (segments.length) bindings[key] = segments;
+      }
+      const presetTexture = normalizeBodyTexture(raw?.presetTexture);
+      return { schemaVersion: ATTACK_TRAIL_SCHEMA_VERSION, presetTexture, presets, bindings };
     }
     _normalizeSegment(value = {}, index, key, sourceSchema = ATTACK_TRAIL_SCHEMA_VERSION) {
       const [profileId, animationId] = key.split("/");
       const segmentLayer = value.layer === "front" ? "front" : "behind";
       const color = normalizeColor(value.color);
+      const frameSlices = normalizeFrameSlices(value.frameSlices ?? value.frame_slices);
+      const presetOnly = value.presetOnly === true && (!Array.isArray(value.sticks) || value.sticks.length === 0);
+      const forceFrameSlices = this._usesFrameSlicesOnly() && !presetOnly;
+      const materialLayers = normalizeMaterialLayers(value.materialLayers ?? value.material_layers, value);
+      const glowStrength = clamp(value.glowStrength ?? value.glow_strength, 0, 3, DEFAULT_GLOW_STRENGTH);
       const segment = {
-        id: String(value.id || `trail_${index + 1}`), name: String(value.name || `Trail ${index + 1}`), profileId: String(value.profileId || profileId), animationId: String(value.animationId || animationId),
-        enabled: true, generated: value.generated !== false, presetOnly: value.presetOnly === true && (!Array.isArray(value.sticks) || value.sticks.length === 0), coordinateSpace: "group", layer: segmentLayer,
-        texture: { path: String(value.texture?.path || ""), assetHash: String(value.texture?.assetHash || ""), name: String(value.texture?.name || ""), type: String(value.texture?.type || "image/png"), width: Number(value.texture?.width || 0), height: Number(value.texture?.height || 0), hasEffectiveAlpha: value.texture?.hasEffectiveAlpha === true },
+        id: String(value.id || `trail_${index + 1}`), name: normalizeTrailName(value.name, index), profileId: String(value.profileId || profileId), animationId: String(value.animationId || animationId),
+        enabled: true, generated: value.generated !== false, presetOnly, coordinateSpace: "group", layer: segmentLayer,
+        texture: normalizeBodyTexture(value.texture),
+        invertTexture: value.invertTexture === true || value.invert_texture === true,
         colorMode: normalizeColorMode(value.colorMode || value.color_mode || "solid"), color,
         gradientStops: normalizeGradientStops(value.gradientStops ?? value.gradient_stops, color),
-        beforeStopChaseMultiplier: this._chaseMultiplier(value, "before", 0, 1, sourceSchema), afterStopChaseMultiplier: this._chaseMultiplier(value, "after", 0.1, 20, sourceSchema), tailSamples: Math.round(clamp(value.tailSamples, 4, 8, 5)),
+        bodyOpacityFloor: clamp(value.bodyOpacityFloor ?? value.body_opacity_floor, 0, 1, 0),
+        bodyDetailStrength: clamp(value.bodyDetailStrength ?? value.body_detail_strength, 0, 1, 1),
+        bodyWhiteThreshold: clamp(value.bodyWhiteThreshold ?? value.body_white_threshold, 0, 1, 1),
+        materialLayers,
+        coreEdge: normalizeCoreEdge(value.coreEdge ?? value.core_edge),
+        glowColor: normalizeColor(value.glowColor ?? value.glow_color, fluorescentHaloColor(materialLayers.core.color)),
+        glowStrength,
+        glowRadius: clamp(value.glowRadius ?? value.glow_radius, 0, 60, DEFAULT_GLOW_RADIUS),
+        headLightBoost: clamp(value.headLightBoost ?? value.head_light_boost, 0, 2, DEFAULT_HEAD_LIGHT_BOOST),
+        headWhitePreserve: clamp(value.headWhitePreserve ?? value.head_white_preserve, 0, 1, 0),
+        headWhiteLength: clamp(value.headWhiteLength ?? value.head_white_length, 0, 0.5, 0.18),
+        widthMode: (value.widthMode ?? value.width_mode) === "fixed" ? "fixed" : "authored",
+        fixedWidth: clamp(value.fixedWidth ?? value.fixed_width, 8, 600, 160),
+        widthScale: clamp(value.widthScale ?? value.width_scale, 0.1, 3, 1),
+        widthOffset: clamp(value.widthOffset ?? value.width_offset, -1, 1, 0),
+        widthChaseStrength: clamp(value.widthChaseStrength ?? value.width_chase_strength, 0, 1, 1),
+        pathScaleX: clamp(value.pathScaleX ?? value.path_scale_x, 0.25, 3, 1),
+        pathScaleY: clamp(value.pathScaleY ?? value.path_scale_y, 0.25, 3, 1),
+        totalDurationMs: Math.round(clamp(value.totalDurationMs ?? value.total_duration_ms, 0, 60000, 0)),
+        tailHeadSpeedRatio: this._tailHeadSpeedRatio(value, sourceSchema),
+        tailSamples: Math.round(clamp(value.tailSamples, 4, 8, 5)),
         tailFadeStart: clamp(value.tailFadeStart, 0, 0.95, 0.6),
         headCurvature: clamp(value.headCurvature, -1, 1, 0),
         speedVariation: clamp(value.speedVariation, 0, 0.25, 0.008), stableSeed: Math.round(clamp(value.stableSeed, 0, 2147483647, 73129)), pathColumns: Math.round(clamp(value.pathColumns, 8, 96, DEFAULT_PATH_COLUMNS)), pathCacheSamples: Math.round(clamp(value.pathCacheSamples, 32, 512, 192)), collapsedWidth: clamp(value.collapsedWidth, 0.25, 32, 2),
         sticks: (Array.isArray(value.sticks) ? value.sticks : []).map((stick, stickIndex) => this._normalizeStick(stick, stickIndex, segmentLayer)),
+        ...(frameSlices || forceFrameSlices ? { frameSlices: frameSlices || {} } : {}),
       };
+      this._renumberAndAutoPhase(segment);
       this._updateGenerated(segment);
       return segment;
+    }
+    _tailHeadSpeedRatio(value, sourceSchema = ATTACK_TRAIL_SCHEMA_VERSION) {
+      const direct = value?.tailHeadSpeedRatio ?? value?.tail_head_speed_ratio;
+      if (direct !== undefined && direct !== null && direct !== "") {
+        return clamp(direct, 0.01, 0.9, DEFAULT_TAIL_HEAD_SPEED_RATIO);
+      }
+      const hasLegacyTiming = [
+        "beforeStopChaseMultiplier", "before_stop_chase_multiplier",
+        "afterStopChaseMultiplier", "after_stop_chase_multiplier",
+        "beforeStopChaseSpeed", "before_stop_chase_speed",
+        "afterStopChaseSpeed", "after_stop_chase_speed",
+      ].some((key) => Object.prototype.hasOwnProperty.call(value || {}, key));
+      if (sourceSchema <= 9 && hasLegacyTiming) {
+        const before = this._chaseMultiplier(value, "before", 0, 1, sourceSchema);
+        const after = this._chaseMultiplier(value, "after", 0.1, 20, sourceSchema);
+        return clamp(1 / (1 + Math.max(0, 1 - before) / Math.max(0.0001, after)), 0.01, 0.9, DEFAULT_TAIL_HEAD_SPEED_RATIO);
+      }
+      return DEFAULT_TAIL_HEAD_SPEED_RATIO;
     }
     _chaseMultiplier(value, phase, min, max, sourceSchema = 6) {
       const before = phase === "before";
@@ -1691,7 +3161,26 @@
       return clamp(legacy / legacyDefault * fallback, min, max, fallback);
     }
     _normalizeStick(value = {}, index, defaultLayer = "behind") {
-      return { id: String(value.id || `stick_${index + 1}`), order: index, frame: Math.max(0, Math.round(Number(value.frame || 0))), framePhase: clamp(value.framePhase, 0, 1, 0.5), phaseMode: value.phaseMode === "manual" ? "manual" : "auto", top: point(value.top, { x: -60, y: -120 }), bottom: point(value.bottom, { x: 60, y: 120 }), reverseDirection: value.reverseDirection === true, directionOffset: clamp(value.directionOffset, -180, 180, 0), tangentStrength: clamp(value.tangentStrength, 0, 4, 0.8), layer: String(value.layer || defaultLayer) === "front" ? "front" : "behind" };
+      return { id: String(value.id || `stick_${index + 1}`), order: index, frame: Math.max(0, Math.round(Number(value.frame || 0))), framePhase: clamp(value.framePhase, 0, 1, 0.5), phaseMode: value.phaseMode === "manual" ? "manual" : "auto", headFrame: (value.headFrame ?? value.head_frame) !== false, headFrameMode: String(value.headFrameMode || value.head_frame_mode || "manual") === "auto" ? "auto" : "manual", top: point(value.top, { x: -60, y: -120 }), bottom: point(value.bottom, { x: 60, y: 120 }), reverseDirection: value.reverseDirection === true, directionOffset: clamp(value.directionOffset, -180, 180, 0), tangentStrength: clamp(value.tangentStrength, 0, 4, 0.8), layer: String(value.layer || defaultLayer) === "front" ? "front" : "behind" };
+    }
+    _texturePreviewSource(image, segment) {
+      if (segment?.invertTexture !== true) return image;
+      const key = `preview-invert:${segment.texture?.assetHash || segment.texture?.path || ""}`;
+      if (this.processed.has(key)) return this.processed.get(key);
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+      for (let index = 0; index < pixels.data.length; index += 4) {
+        pixels.data[index] = 255 - pixels.data[index];
+        pixels.data[index + 1] = 255 - pixels.data[index + 1];
+        pixels.data[index + 2] = 255 - pixels.data[index + 2];
+      }
+      context.putImageData(pixels, 0, 0);
+      this.processed.set(key, canvas);
+      return canvas;
     }
     _renderTexturePreview(segment) {
       const canvas = this.els.attackTrailTexturePreview;
@@ -1708,11 +3197,12 @@
         return;
       }
       canvas.hidden = false;
+      const previewImage = this._texturePreviewSource(image, segment);
       const context = canvas.getContext("2d");
       const width = canvas.width, height = canvas.height;
       context.clearRect(0, 0, width, height);
       const drawHeight = height - 20;
-      const straightWidth = Math.min(width * 0.72, drawHeight * image.width / Math.max(1, image.height));
+      const straightWidth = Math.min(width * 0.72, drawHeight * previewImage.width / Math.max(1, previewImage.height));
       const curvePad = Math.max(18, straightWidth * 0.24);
       const baseX = (width - straightWidth) * 0.5 + curvePad * 0.5;
       const rightX = baseX + straightWidth - curvePad * 0.5;
@@ -1720,7 +3210,7 @@
       const rows = 16;
       const columns = 8;
       context.imageSmoothingEnabled = true;
-      const sourcePoint = (u, v) => ({ x: image.width * u, y: image.height * v });
+      const sourcePoint = (u, v) => ({ x: previewImage.width * u, y: previewImage.height * v });
       const previewPoint = (u, v) => ({
         x: baseX + (rightX - baseX) * u + segment.headCurvature * curvePad * this._headCurveProfile(v) * this._headCurveBlend(u),
         y: topY + drawHeight * v,
@@ -1731,8 +3221,8 @@
           const u0 = column / columns, u1 = (column + 1) / columns;
           const source00 = sourcePoint(u0, v0), source10 = sourcePoint(u1, v0), source01 = sourcePoint(u0, v1), source11 = sourcePoint(u1, v1);
           const target00 = previewPoint(u0, v0), target10 = previewPoint(u1, v0), target01 = previewPoint(u0, v1), target11 = previewPoint(u1, v1);
-          this._drawTriangle(context, image, [source00, source10, source11], [target00, target10, target11]);
-          this._drawTriangle(context, image, [source00, source11, source01], [target00, target11, target01]);
+          this._drawTriangle(context, previewImage, [source00, source10, source11], [target00, target10, target11]);
+          this._drawTriangle(context, previewImage, [source00, source11, source01], [target00, target11, target01]);
         }
       }
       context.save();
@@ -1754,15 +3244,46 @@
     _syncGuideToggle(supported = true) {
       const button = this.els.attackTrailGuideToggle;
       if (!button) return;
-      button.hidden = !supported;
-      button.disabled = !supported || !this.enabled;
+      const drawing = supported && this.enabled && this.workspaceMode === "draw";
+      button.hidden = !drawing;
+      button.disabled = !drawing;
       button.classList.toggle("active", this.guidesVisible);
       button.setAttribute("aria-pressed", this.guidesVisible ? "true" : "false");
       button.title = this.guidesVisible ? "隐藏攻击拖尾棍子" : "显示攻击拖尾棍子";
+      this._syncToolbar(supported);
+    }
+    _syncToolbar(supported = true) {
+      const activeWorkspace = supported && this.enabled && Boolean(this.workspaceMode);
+      const pathButton = this.els.attackTrailPathToggle;
+      if (pathButton) {
+        pathButton.hidden = !activeWorkspace;
+        pathButton.disabled = !activeWorkspace;
+        pathButton.classList.toggle("active", this.pathVisible);
+        pathButton.setAttribute("aria-pressed", this.pathVisible ? "true" : "false");
+        pathButton.title = this.pathVisible ? "隐藏拖尾轨迹虚线" : "显示拖尾轨迹虚线";
+      }
+      const previewButton = this.els.attackTrailPreview;
+      if (previewButton) {
+        const drawing = activeWorkspace && this.workspaceMode === "draw";
+        previewButton.hidden = !drawing;
+        previewButton.disabled = !drawing || (this._segment()?.sticks.length || 0) < 2;
+        previewButton.classList.toggle("active", this.previewing);
+        previewButton.textContent = this.previewing ? "停止预览" : "拖尾预览";
+      }
     }
     _readDataUrl(file) { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || "")); reader.onerror = () => reject(reader.error || new Error("读取失败")); reader.readAsDataURL(file); }); }
     _escape(value) { return String(value || "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character])); }
   }
 
-  window.AttackTrailEditor = AttackTrailEditor;
+  AttackTrailEditor.smoothSticks = smoothTrailSticks;
+  AttackTrailEditor.lifecycleOrigin = attackTrailLifecycleOrigin;
+  if (typeof window !== "undefined") window.AttackTrailEditor = AttackTrailEditor;
+  if (typeof module !== "undefined" && module.exports) module.exports = {
+    applyAttackTrailPresetStyle,
+    attackTrailLifecycleOrigin,
+    preferredAttackTrailSegment,
+    resolveAttackTrailContextSegmentId,
+    smoothTrailSticks,
+    upsertAttackTrailPresetByName,
+  };
 }());

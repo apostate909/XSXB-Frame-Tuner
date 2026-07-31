@@ -5,21 +5,91 @@ const zlib = require("node:zlib");
 const { reslash } = require("./project_store");
 
 const DEFAULT_ATTACK_TRAIL_PRESET_TEXTURE = Object.freeze({
-  path: "tools/animation_tuner/public/presets/attack_trails/dynamic_trail_luma.png",
-  assetHash: "e2b855cdb3c59db8b4ed33f400b03bafd4af7df2636f3fd4d3eb68603763da90",
-  name: "dynamic_trail_luma.png",
+  path: "tools/animation_tuner/public/presets/attack_trails/coherent_trail_body_luma.png",
+  assetHash: "af5fffcb5009c5eb78bc595d85f72f0bd68e310d5f7926e54512d4f39efb1878",
+  name: "coherent_trail_body_luma.png",
   type: "image/png",
-  width: 648,
-  height: 435,
+  width: 256,
+  height: 256,
   hasEffectiveAlpha: false,
 });
+const LEGACY_PRESET_TEXTURE_PATH = "tools/animation_tuner/public/presets/attack_trails/dynamic_trail_luma.png";
+const LEGACY_PRESET_TEXTURE_HASH = "e2b855cdb3c59db8b4ed33f400b03bafd4af7df2636f3fd4d3eb68603763da90";
+const DEFAULT_MATERIAL_LAYERS = Object.freeze({
+  streaks: Object.freeze({
+    enabled: true,
+    texture: Object.freeze({
+      path: "tools/animation_tuner/public/presets/attack_trails/coherent_breakup_luma.png",
+      assetHash: "1702655ad189266dd598355cfc47afbf42bba34c064e423200b5daa6ae13c760",
+      name: "coherent_breakup_luma.png",
+      type: "image/png",
+      width: 256,
+      height: 256,
+      hasEffectiveAlpha: false,
+    }),
+    color: "#e93f73",
+    strength: 0.46,
+    blendMode: "screen",
+    invert: false,
+    threshold: 0,
+    softness: 0,
+    expansion: 0,
+  }),
+  breakup: Object.freeze({
+    enabled: true,
+    texture: Object.freeze({
+      path: "tools/animation_tuner/public/presets/attack_trails/coherent_breakup_luma.png",
+      assetHash: "1702655ad189266dd598355cfc47afbf42bba34c064e423200b5daa6ae13c760",
+      name: "coherent_breakup_luma.png",
+      type: "image/png",
+      width: 256,
+      height: 256,
+      hasEffectiveAlpha: false,
+    }),
+    color: "#ffffff",
+    strength: 0.72,
+    blendMode: "normal",
+    invert: false,
+    threshold: 0,
+    softness: 0,
+    expansion: 0,
+  }),
+  core: Object.freeze({
+    enabled: true,
+    texture: Object.freeze({
+      path: "tools/animation_tuner/public/presets/attack_trails/coherent_outer_glow_luma.png",
+      assetHash: "fc6b0c707f9cbf57aee0efdc7cb985ae2b8191e65e55dcc4644ecbb37972fd33",
+      name: "coherent_outer_glow_luma.png",
+      type: "image/png",
+      width: 256,
+      height: 256,
+      hasEffectiveAlpha: false,
+    }),
+    color: "#ffe7ee",
+    strength: 1.05,
+    blendMode: "add",
+    invert: false,
+    threshold: 0,
+    softness: 0,
+    expansion: 0,
+  }),
+});
+const DEFAULT_TAIL_HEAD_SPEED_RATIO = 0.7;
+const DEFAULT_PATH_COLUMNS = 20;
+const DEFAULT_GLOW_STRENGTH = 0.28;
+const DEFAULT_GLOW_RADIUS = 16;
+const DEFAULT_HEAD_LIGHT_BOOST = 0.55;
 const DEFAULT_BEFORE_CHASE_MULTIPLIER = 0.5;
 const DEFAULT_AFTER_CHASE_MULTIPLIER = 2;
-const DEFAULT_PATH_COLUMNS = 20;
 const LEGACY_BEFORE_CHASE_SPEED = 110;
 const LEGACY_AFTER_CHASE_SPEED = 680;
-const ATTACK_TRAIL_SCHEMA_VERSION = 8;
-const EMPTY_ATTACK_TRAILS = Object.freeze({ schemaVersion: ATTACK_TRAIL_SCHEMA_VERSION, presetTexture: DEFAULT_ATTACK_TRAIL_PRESET_TEXTURE, bindings: {} });
+const ATTACK_TRAIL_SCHEMA_VERSION = 21;
+const EMPTY_ATTACK_TRAILS = Object.freeze({
+  schemaVersion: ATTACK_TRAIL_SCHEMA_VERSION,
+  presetTexture: DEFAULT_ATTACK_TRAIL_PRESET_TEXTURE,
+  presets: Object.freeze([]),
+  bindings: {},
+});
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 function clone(value) {
@@ -56,14 +126,85 @@ function normalizeTexture(value) {
   };
 }
 
+function normalizeBodyTexture(value) {
+  const texture = value && typeof value === "object" ? value : {};
+  const legacyDefault = reslash(texture.path || "") === LEGACY_PRESET_TEXTURE_PATH
+    || String(texture.assetHash || "") === LEGACY_PRESET_TEXTURE_HASH;
+  const canonicalDefault = reslash(texture.path || "") === DEFAULT_ATTACK_TRAIL_PRESET_TEXTURE.path;
+  return normalizeTexture(!texture.path || legacyDefault || canonicalDefault ? DEFAULT_ATTACK_TRAIL_PRESET_TEXTURE : texture);
+}
+
 function normalizeColor(value, fallback = "#d9364a") {
   return /^#[0-9a-f]{6}$/i.test(String(value || "")) ? String(value).toLowerCase() : fallback;
+}
+
+function fluorescentHaloColor(value) {
+  const color = normalizeColor(value);
+  const channels = [1, 3, 5].map((offset) => parseInt(color.slice(offset, offset + 2), 16));
+  const minimum = Math.min(...channels);
+  const maximum = Math.max(...channels);
+  const range = maximum - minimum;
+  if (range < 3) return color;
+  return `#${channels.map((channel) => (
+    Math.round(45 + (channel - minimum) / range * 210).toString(16).padStart(2, "0")
+  )).join("")}`;
+}
+
+function normalizeTrailName(value, index = 0) {
+  const name = String(value || "").trim();
+  if (!name) return `Trail ${index + 1}`;
+  if (/^\?+$/.test(name) || /[\uE000-\uF8FF\uFFFD]/u.test(name)) return "默认拖尾";
+  return name;
 }
 
 function normalizeColorMode(value) {
   const mode = String(value || "").toLowerCase();
   if (mode === "original" || mode === "gradient") return mode;
   return "solid";
+}
+
+function normalizeCoreEdge(value) {
+  const edge = String(value || "").toLowerCase();
+  return edge === "bottom" || edge === "both" ? edge : "top";
+}
+
+function normalizeBlendMode(value, fallback = "add") {
+  const mode = String(value || "").toLowerCase();
+  return ["add", "screen", "normal", "multiply"].includes(mode) ? mode : fallback;
+}
+
+function normalizeMaterialLayers(value, legacy = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const legacyEnabled = legacy.layeredMaterial !== false && legacy.layered_material !== false;
+  const result = {};
+  for (const layerId of ["streaks", "breakup", "core"]) {
+    const defaults = DEFAULT_MATERIAL_LAYERS[layerId];
+    const material = source[layerId] && typeof source[layerId] === "object" ? source[layerId] : {};
+    result[layerId] = {
+      enabled: legacyEnabled && material.enabled !== false,
+      texture: normalizeTexture(
+        material.texture?.path && reslash(material.texture.path) !== defaults.texture.path
+          ? material.texture
+          : defaults.texture,
+      ),
+      color: normalizeColor(
+        material.color ?? (layerId === "core" ? legacy.coreColor ?? legacy.core_color : undefined),
+        defaults.color,
+      ),
+      strength: clamp(
+        material.strength ?? (layerId === "core" ? legacy.coreStrength ?? legacy.core_strength : undefined),
+        0,
+        2,
+        defaults.strength,
+      ),
+      blendMode: normalizeBlendMode(material.blendMode ?? material.blend_mode, defaults.blendMode),
+      invert: material.invert === undefined ? defaults.invert : material.invert === true,
+      threshold: clamp(material.threshold, 0, 1, defaults.threshold),
+      softness: clamp(material.softness, 0, 1, defaults.softness),
+      expansion: clamp(material.expansion, 0, 0.12, defaults.expansion),
+    };
+  }
+  return result;
 }
 
 function normalizeGradientStops(value, fallbackColor = "#d9364a") {
@@ -79,6 +220,23 @@ function normalizeGradientStops(value, fallbackColor = "#d9364a") {
   ];
 }
 
+function normalizeFrameSlices(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const result = {};
+  for (const [rawFrame, rawSlice] of Object.entries(value)) {
+    if (!rawSlice || typeof rawSlice !== "object") continue;
+    const frame = Math.max(0, Math.round(clamp(rawFrame, 0, 100000, 0)));
+    const tail = clamp(rawSlice.tailProgress ?? rawSlice.tail ?? rawSlice.start, 0, 1, 0);
+    const head = clamp(rawSlice.headProgress ?? rawSlice.head ?? rawSlice.end, 0, 1, 1);
+    result[String(frame)] = {
+      enabled: rawSlice.enabled !== false,
+      tailProgress: Math.min(tail, head),
+      headProgress: Math.max(tail, head),
+    };
+  }
+  return result;
+}
+
 function normalizeStick(value, index, defaultLayer = "behind") {
   const stick = value && typeof value === "object" ? value : {};
   const top = point(stick.top, { x: -60, y: -120 });
@@ -90,6 +248,8 @@ function normalizeStick(value, index, defaultLayer = "behind") {
     frame: Math.max(0, Math.round(clamp(stick.frame, 0, 100000, 0))),
     framePhase: clamp(stick.framePhase ?? stick.frame_phase, 0, 1, 0.5),
     phaseMode: String(stick.phaseMode || stick.phase_mode || "auto") === "manual" ? "manual" : "auto",
+    headFrame: (stick.headFrame ?? stick.head_frame) !== false,
+    headFrameMode: String(stick.headFrameMode || stick.head_frame_mode || "manual") === "auto" ? "auto" : "manual",
     top,
     bottom,
     reverseDirection: stick.reverseDirection === true || stick.reverse_direction === true,
@@ -100,8 +260,17 @@ function normalizeStick(value, index, defaultLayer = "behind") {
 }
 
 function normalizeFramePhases(sticks) {
+  if (sticks.length) {
+    sticks.forEach((stick, index) => {
+      if (stick.headFrameMode === "auto") stick.headFrame = index === sticks.length - 1;
+    });
+    sticks[sticks.length - 1].headFrame = true;
+  }
   const frames = new Map();
-  for (const stick of sticks) (frames.get(stick.frame) || frames.set(stick.frame, []).get(stick.frame)).push(stick);
+  for (const stick of sticks) {
+    if (!stick.headFrame) continue;
+    (frames.get(stick.frame) || frames.set(stick.frame, []).get(stick.frame)).push(stick);
+  }
   for (const frameSticks of frames.values()) {
     let index = 0;
     while (index < frameSticks.length) {
@@ -144,6 +313,26 @@ function normalizeChaseMultiplier(segment, phase, sourceSchema = 6) {
   return clamp(legacy / legacyDefault * fallback, min, max, fallback);
 }
 
+function normalizeTailHeadSpeedRatio(segment, sourceSchema = 9) {
+  const direct = segment.tailHeadSpeedRatio ?? segment.tail_head_speed_ratio;
+  if (direct !== undefined && direct !== null && direct !== "") {
+    return clamp(direct, 0.01, 0.9, DEFAULT_TAIL_HEAD_SPEED_RATIO);
+  }
+  const hasLegacyTiming = [
+    "beforeStopChaseMultiplier", "before_stop_chase_multiplier",
+    "afterStopChaseMultiplier", "after_stop_chase_multiplier",
+    "beforeStopChaseSpeed", "before_stop_chase_speed",
+    "afterStopChaseSpeed", "after_stop_chase_speed",
+  ].some((key) => Object.prototype.hasOwnProperty.call(segment, key));
+  if (sourceSchema <= 9 && hasLegacyTiming) {
+    const before = normalizeChaseMultiplier(segment, "before", sourceSchema);
+    const after = normalizeChaseMultiplier(segment, "after", sourceSchema);
+    const legacyCatchRatio = Math.max(0, 1 - before) / Math.max(0.0001, after);
+    return clamp(1 / (1 + legacyCatchRatio), 0.01, 0.9, DEFAULT_TAIL_HEAD_SPEED_RATIO);
+  }
+  return DEFAULT_TAIL_HEAD_SPEED_RATIO;
+}
+
 function normalizeSegment(value, index, bindingKey, sourceSchema = 6) {
   const segment = value && typeof value === "object" ? value : {};
   const [profileId = "", animationId = ""] = String(bindingKey || "").split("/");
@@ -153,9 +342,11 @@ function normalizeSegment(value, index, bindingKey, sourceSchema = 6) {
     .sort((a, b) => a.order - b.order)
     .map((stick, order) => ({ ...stick, order })));
   const color = normalizeColor(segment.color);
+  const frameSlices = normalizeFrameSlices(segment.frameSlices ?? segment.frame_slices);
+  const materialLayers = normalizeMaterialLayers(segment.materialLayers ?? segment.material_layers, segment);
   return {
     id: slug(segment.id, `trail_${index + 1}`),
-    name: String(segment.name || `Trail ${index + 1}`),
+    name: normalizeTrailName(segment.name, index),
     profileId: String(segment.profileId || profileId),
     animationId: String(segment.animationId || animationId),
     enabled: segment.enabled !== false,
@@ -163,12 +354,31 @@ function normalizeSegment(value, index, bindingKey, sourceSchema = 6) {
     presetOnly: segment.presetOnly === true && sticks.length === 0,
     coordinateSpace: "group",
     layer: segmentLayer,
-    texture: normalizeTexture(segment.texture),
+    texture: normalizeBodyTexture(segment.texture),
+    invertTexture: segment.invertTexture === true || segment.invert_texture === true,
     colorMode: normalizeColorMode(segment.colorMode || segment.color_mode || "solid"),
     color,
     gradientStops: normalizeGradientStops(segment.gradientStops ?? segment.gradient_stops, color),
-    beforeStopChaseMultiplier: normalizeChaseMultiplier(segment, "before", sourceSchema),
-    afterStopChaseMultiplier: normalizeChaseMultiplier(segment, "after", sourceSchema),
+    bodyOpacityFloor: clamp(segment.bodyOpacityFloor ?? segment.body_opacity_floor, 0, 1, 0),
+    bodyDetailStrength: clamp(segment.bodyDetailStrength ?? segment.body_detail_strength, 0, 1, 1),
+    bodyWhiteThreshold: clamp(segment.bodyWhiteThreshold ?? segment.body_white_threshold, 0, 1, 1),
+    materialLayers,
+    coreEdge: normalizeCoreEdge(segment.coreEdge ?? segment.core_edge),
+    glowColor: normalizeColor(segment.glowColor ?? segment.glow_color, fluorescentHaloColor(materialLayers.core.color)),
+    glowStrength: clamp(segment.glowStrength ?? segment.glow_strength, 0, 3, DEFAULT_GLOW_STRENGTH),
+    glowRadius: clamp(segment.glowRadius ?? segment.glow_radius, 0, 60, DEFAULT_GLOW_RADIUS),
+    headLightBoost: clamp(segment.headLightBoost ?? segment.head_light_boost, 0, 2, DEFAULT_HEAD_LIGHT_BOOST),
+    headWhitePreserve: clamp(segment.headWhitePreserve ?? segment.head_white_preserve, 0, 1, 0),
+    headWhiteLength: clamp(segment.headWhiteLength ?? segment.head_white_length, 0, 0.5, 0.18),
+    widthMode: (segment.widthMode ?? segment.width_mode) === "fixed" ? "fixed" : "authored",
+    fixedWidth: clamp(segment.fixedWidth ?? segment.fixed_width, 8, 600, 160),
+    widthScale: clamp(segment.widthScale ?? segment.width_scale, 0.1, 3, 1),
+    widthOffset: clamp(segment.widthOffset ?? segment.width_offset, -1, 1, 0),
+    widthChaseStrength: clamp(segment.widthChaseStrength ?? segment.width_chase_strength, 0, 1, 1),
+    pathScaleX: clamp(segment.pathScaleX ?? segment.path_scale_x, 0.25, 3, 1),
+    pathScaleY: clamp(segment.pathScaleY ?? segment.path_scale_y, 0.25, 3, 1),
+    totalDurationMs: Math.round(clamp(segment.totalDurationMs ?? segment.total_duration_ms, 0, 60000, 0)),
+    tailHeadSpeedRatio: normalizeTailHeadSpeedRatio(segment, sourceSchema),
     tailSamples: Math.round(clamp(segment.tailSamples ?? segment.tail_samples, 4, 8, 5)),
     tailFadeStart: clamp(segment.tailFadeStart ?? segment.tail_fade_start, 0, 0.95, 0.6),
     headCurvature: clamp(segment.headCurvature ?? segment.head_curvature, -1, 1, 0),
@@ -178,21 +388,43 @@ function normalizeSegment(value, index, bindingKey, sourceSchema = 6) {
     pathCacheSamples: Math.round(clamp(segment.pathCacheSamples ?? segment.path_cache_samples, 32, 512, 192)),
     collapsedWidth: clamp(segment.collapsedWidth ?? segment.collapsed_width, 0.25, 32, 2),
     sticks,
+    ...(frameSlices ? { frameSlices } : {}),
   };
 }
 
 function normalizeAttackTrails(raw) {
   const source = raw && typeof raw === "object" ? raw : {};
   const sourceSchema = Math.max(0, Math.round(Number(source.schemaVersion || 0)));
-  const presetTexture = normalizeTexture(source.presetTexture?.path ? source.presetTexture : DEFAULT_ATTACK_TRAIL_PRESET_TEXTURE);
+  const presetTexture = normalizeBodyTexture(source.presetTexture);
+  const presets = [];
+  const presetIds = new Set();
+  const addPreset = (rawPreset, bindingKey = "preset/global") => {
+    const preset = normalizeSegment({
+      ...(rawPreset && typeof rawPreset === "object" ? rawPreset : {}),
+      generated: false,
+      presetOnly: true,
+      sticks: [],
+    }, presets.length, bindingKey, sourceSchema);
+    if (presetIds.has(preset.id)) return;
+    presetIds.add(preset.id);
+    presets.push(preset);
+  };
+  for (const preset of Array.isArray(source.presets) ? source.presets : []) {
+    addPreset(preset, `${preset?.profileId || "preset"}/${preset?.animationId || "global"}`);
+  }
   const bindings = {};
   for (const [rawKey, rawSegments] of Object.entries(source.bindings || {})) {
     const key = String(rawKey || "").trim();
     if (!key.includes("/") || !Array.isArray(rawSegments)) continue;
-    const segments = rawSegments.map((segment, index) => normalizeSegment(segment, index, key, sourceSchema));
+    const segments = [];
+    for (const rawSegment of rawSegments) {
+      const segment = normalizeSegment(rawSegment, segments.length, key, sourceSchema);
+      if (segment.presetOnly) addPreset(segment, key);
+      else segments.push(segment);
+    }
     if (segments.length) bindings[key] = segments;
   }
-  return { schemaVersion: ATTACK_TRAIL_SCHEMA_VERSION, presetTexture, bindings };
+  return { schemaVersion: ATTACK_TRAIL_SCHEMA_VERSION, presetTexture, presets, bindings };
 }
 
 function pngInfo(buffer) {

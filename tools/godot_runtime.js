@@ -178,6 +178,12 @@ func has_frame_animation(animation_name: String) -> bool:
 	return _animations.has(animation_name)
 
 
+func animation_frame_count(animation_name: String) -> int:
+	var animation: Dictionary = _animations.get(animation_name, {})
+	var frames: Array = animation.get("frames", []) as Array
+	return frames.size()
+
+
 func frame_duration_multiplier(animation_name: String, frame_index: int) -> float:
 	var animation: Dictionary = _animations.get(animation_name, {})
 	var frames: Array = animation.get("frames", []) as Array
@@ -206,6 +212,10 @@ func trail_frame_arrival_time(animation_name: String, frame_index: int, frame_ph
 	return elapsed
 
 
+func trail_frame_duration(animation_name: String, frame_index: int) -> float:
+	return _frame_duration_for(animation_name, frame_index)
+
+
 func current_animation_elapsed() -> float:
 	if _current_animation == "":
 		return 0.0
@@ -218,18 +228,12 @@ func current_animation_elapsed() -> float:
 	return elapsed
 
 
+func trail_animation_elapsed(_animation_name: String) -> float:
+	return current_animation_elapsed()
+
+
 func trail_quantized_animation_elapsed(animation_name: String) -> float:
-	var elapsed := current_animation_elapsed()
-	if animation_name == "" or animation_name != _current_animation or _manual_frame_control:
-		return elapsed
-	var frame_start := trail_frame_arrival_time(animation_name, _current_frame, 0.0)
-	var frame_duration := _frame_duration_for(animation_name, _current_frame)
-	var base_duration := 1.0 / _animation_fps(animation_name)
-	var subdivisions := clampi(roundi(frame_duration / maxf(0.000001, base_duration)), 1, 64)
-	var step := frame_duration / float(subdivisions)
-	var elapsed_in_frame := clampf(elapsed - frame_start, 0.0, maxf(0.0, frame_duration - 0.000001))
-	var sample_index := mini(subdivisions - 1, floori(elapsed_in_frame / maxf(0.000001, step)))
-	return frame_start + (float(sample_index) + 0.5) * step
+	return trail_animation_elapsed(animation_name)
 
 
 func animation_duration(animation_name: String) -> float:
@@ -762,7 +766,7 @@ func _configure_attack_trails() -> void:
 
 
 func _update_attack_trails() -> void:
-	var elapsed := trail_quantized_animation_elapsed(_current_animation)
+	var elapsed := trail_animation_elapsed(_current_animation)
 	if _attack_trails_behind != null and _attack_trails_behind.has_method("update_for_animation"):
 		_attack_trails_behind.call("update_for_animation", _current_animation, elapsed)
 	if _attack_trails_front != null and _attack_trails_front.has_method("update_for_animation"):

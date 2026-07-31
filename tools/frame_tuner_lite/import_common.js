@@ -89,7 +89,6 @@ function saveAnimation({ project, profileId, profileLabel, animation }) {
     autoMeasured: false,
   };
   settings.export = {
-    phaseDurationMs: Number(settings.export?.phaseDurationMs || 80),
     sheetColumns: Number(settings.export?.sheetColumns || 8),
   };
   store.writeJson(target.settings, settings);

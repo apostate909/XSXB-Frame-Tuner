@@ -1,0 +1,893 @@
+{
+  "schemaVersion": 1,
+  "presets": [
+    {
+      "id": "trail_ms3yybzc_oueqo",
+      "name": "默认拖尾",
+      "generated": false,
+      "presetOnly": true,
+      "texture": {
+        "path": "tools/animation_tuner/public/presets/attack_trails/coherent_trail_body_luma.png",
+        "assetHash": "af5fffcb5009c5eb78bc595d85f72f0bd68e310d5f7926e54512d4f39efb1878",
+        "name": "coherent_trail_body_luma.png",
+        "type": "image/png",
+        "width": 256,
+        "height": 256,
+        "hasEffectiveAlpha": false
+      },
+      "invertTexture": false,
+      "colorMode": "solid",
+      "color": "#d9364a",
+      "gradientStops": [
+        {
+          "id": "gradient_stop_bottom",
+          "position": 0,
+          "color": "#d9364a"
+        },
+        {
+          "id": "gradient_stop_top",
+          "position": 1,
+          "color": "#d9364a"
+        }
+      ],
+      "materialLayers": {
+        "streaks": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/coherent_breakup_luma.png",
+            "assetHash": "1702655ad189266dd598355cfc47afbf42bba34c064e423200b5daa6ae13c760",
+            "name": "coherent_breakup_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#e93f73",
+          "strength": 0.46,
+          "blendMode": "screen",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        },
+        "breakup": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/coherent_breakup_luma.png",
+            "assetHash": "1702655ad189266dd598355cfc47afbf42bba34c064e423200b5daa6ae13c760",
+            "name": "coherent_breakup_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffffff",
+          "strength": 0.72,
+          "blendMode": "normal",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        },
+        "core": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/coherent_outer_glow_luma.png",
+            "assetHash": "fc6b0c707f9cbf57aee0efdc7cb985ae2b8191e65e55dcc4644ecbb37972fd33",
+            "name": "coherent_outer_glow_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffe7ee",
+          "strength": 1.05,
+          "blendMode": "add",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        }
+      },
+      "bodyOpacityFloor": 0,
+      "bodyDetailStrength": 1,
+      "bodyWhiteThreshold": 1,
+      "coreEdge": "top",
+      "glowColor": "#ff2d6a",
+      "glowStrength": 0.28,
+      "glowRadius": 16,
+      "headLightBoost": 0.55,
+      "headWhitePreserve": 0,
+      "headWhiteLength": 0.18,
+      "widthMode": "authored",
+      "fixedWidth": 160,
+      "widthScale": 1,
+      "widthOffset": 0,
+      "widthChaseStrength": 1,
+      "pathScaleX": 1,
+      "pathScaleY": 1,
+      "tailSamples": 5,
+      "pathColumns": 20,
+      "tailFadeStart": 0.6,
+      "headCurvature": 0
+    },
+    {
+      "id": "trail_ms5iji82_w8kw7",
+      "name": "多层1",
+      "generated": false,
+      "presetOnly": true,
+      "texture": {
+        "path": "tools/animation_tuner/public/presets/attack_trails/coherent_trail_body_luma.png",
+        "assetHash": "af5fffcb5009c5eb78bc595d85f72f0bd68e310d5f7926e54512d4f39efb1878",
+        "name": "coherent_trail_body_luma.png",
+        "type": "image/png",
+        "width": 256,
+        "height": 256,
+        "hasEffectiveAlpha": false
+      },
+      "invertTexture": false,
+      "colorMode": "solid",
+      "color": "#810413",
+      "gradientStops": [
+        {
+          "id": "gradient_stop_bottom",
+          "position": 0,
+          "color": "#d9364a"
+        },
+        {
+          "id": "gradient_stop_top",
+          "position": 1,
+          "color": "#d9364a"
+        }
+      ],
+      "materialLayers": {
+        "streaks": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/coherent_breakup_luma.png",
+            "assetHash": "1702655ad189266dd598355cfc47afbf42bba34c064e423200b5daa6ae13c760",
+            "name": "coherent_breakup_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#8f002b",
+          "strength": 0.95,
+          "blendMode": "screen",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        },
+        "breakup": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/coherent_breakup_luma.png",
+            "assetHash": "1702655ad189266dd598355cfc47afbf42bba34c064e423200b5daa6ae13c760",
+            "name": "coherent_breakup_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffffff",
+          "strength": 0.1,
+          "blendMode": "normal",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        },
+        "core": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/coherent_outer_glow_luma.png",
+            "assetHash": "fc6b0c707f9cbf57aee0efdc7cb985ae2b8191e65e55dcc4644ecbb37972fd33",
+            "name": "coherent_outer_glow_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffe7ee",
+          "strength": 0.5,
+          "blendMode": "add",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        }
+      },
+      "bodyOpacityFloor": 0,
+      "bodyDetailStrength": 1,
+      "bodyWhiteThreshold": 1,
+      "coreEdge": "top",
+      "glowColor": "#ff2d6a",
+      "glowStrength": 1.2,
+      "glowRadius": 16,
+      "headLightBoost": 0.95,
+      "headWhitePreserve": 0,
+      "headWhiteLength": 0.18,
+      "widthMode": "authored",
+      "fixedWidth": 160,
+      "widthScale": 1,
+      "widthOffset": 0,
+      "widthChaseStrength": 1,
+      "pathScaleX": 1,
+      "pathScaleY": 1,
+      "tailSamples": 5,
+      "pathColumns": 20,
+      "tailFadeStart": 0.6,
+      "headCurvature": 0
+    },
+    {
+      "id": "trail_ms4w4tty_duc4u",
+      "name": "默认拖尾",
+      "generated": false,
+      "presetOnly": true,
+      "texture": {
+        "path": "tools/animation_tuner/public/presets/attack_trails/coherent_trail_body_luma.png",
+        "assetHash": "af5fffcb5009c5eb78bc595d85f72f0bd68e310d5f7926e54512d4f39efb1878",
+        "name": "coherent_trail_body_luma.png",
+        "type": "image/png",
+        "width": 256,
+        "height": 256,
+        "hasEffectiveAlpha": false
+      },
+      "invertTexture": false,
+      "colorMode": "solid",
+      "color": "#d9364a",
+      "gradientStops": [
+        {
+          "id": "gradient_stop_bottom",
+          "position": 0,
+          "color": "#d9364a"
+        },
+        {
+          "id": "gradient_stop_top",
+          "position": 1,
+          "color": "#d9364a"
+        }
+      ],
+      "materialLayers": {
+        "streaks": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/coherent_breakup_luma.png",
+            "assetHash": "1702655ad189266dd598355cfc47afbf42bba34c064e423200b5daa6ae13c760",
+            "name": "coherent_breakup_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#e93f73",
+          "strength": 0.46,
+          "blendMode": "screen",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        },
+        "breakup": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/coherent_breakup_luma.png",
+            "assetHash": "1702655ad189266dd598355cfc47afbf42bba34c064e423200b5daa6ae13c760",
+            "name": "coherent_breakup_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffffff",
+          "strength": 0.72,
+          "blendMode": "normal",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        },
+        "core": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/coherent_outer_glow_luma.png",
+            "assetHash": "fc6b0c707f9cbf57aee0efdc7cb985ae2b8191e65e55dcc4644ecbb37972fd33",
+            "name": "coherent_outer_glow_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffe7ee",
+          "strength": 1.05,
+          "blendMode": "add",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        }
+      },
+      "bodyOpacityFloor": 0,
+      "bodyDetailStrength": 1,
+      "bodyWhiteThreshold": 1,
+      "coreEdge": "top",
+      "glowColor": "#ff2d6a",
+      "glowStrength": 0.28,
+      "glowRadius": 16,
+      "headLightBoost": 0.55,
+      "headWhitePreserve": 0,
+      "headWhiteLength": 0.18,
+      "widthMode": "authored",
+      "fixedWidth": 160,
+      "widthScale": 1,
+      "widthOffset": 0,
+      "widthChaseStrength": 1,
+      "pathScaleX": 1,
+      "pathScaleY": 1,
+      "tailSamples": 5,
+      "pathColumns": 20,
+      "tailFadeStart": 0.6,
+      "headCurvature": 0
+    },
+    {
+      "id": "trail_ms5kqho5_7pwiv",
+      "name": "多层1",
+      "generated": false,
+      "presetOnly": true,
+      "texture": {
+        "path": "tools/animation_tuner/public/presets/attack_trails/coherent_trail_body_luma.png",
+        "assetHash": "af5fffcb5009c5eb78bc595d85f72f0bd68e310d5f7926e54512d4f39efb1878",
+        "name": "coherent_trail_body_luma.png",
+        "type": "image/png",
+        "width": 256,
+        "height": 256,
+        "hasEffectiveAlpha": false
+      },
+      "invertTexture": false,
+      "colorMode": "solid",
+      "color": "#810413",
+      "gradientStops": [
+        {
+          "id": "gradient_stop_bottom",
+          "position": 0,
+          "color": "#d9364a"
+        },
+        {
+          "id": "gradient_stop_top",
+          "position": 1,
+          "color": "#d9364a"
+        }
+      ],
+      "materialLayers": {
+        "streaks": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/coherent_breakup_luma.png",
+            "assetHash": "1702655ad189266dd598355cfc47afbf42bba34c064e423200b5daa6ae13c760",
+            "name": "coherent_breakup_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#d8134e",
+          "strength": 2,
+          "blendMode": "screen",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        },
+        "breakup": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/coherent_breakup_luma.png",
+            "assetHash": "1702655ad189266dd598355cfc47afbf42bba34c064e423200b5daa6ae13c760",
+            "name": "coherent_breakup_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffffff",
+          "strength": 0.15,
+          "blendMode": "normal",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        },
+        "core": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/coherent_outer_glow_luma.png",
+            "assetHash": "fc6b0c707f9cbf57aee0efdc7cb985ae2b8191e65e55dcc4644ecbb37972fd33",
+            "name": "coherent_outer_glow_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffe7ee",
+          "strength": 1.45,
+          "blendMode": "add",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        }
+      },
+      "bodyOpacityFloor": 0,
+      "bodyDetailStrength": 1,
+      "bodyWhiteThreshold": 1,
+      "coreEdge": "top",
+      "glowColor": "#ff0048",
+      "glowStrength": 1.2,
+      "glowRadius": 26,
+      "headLightBoost": 0.4,
+      "headWhitePreserve": 0,
+      "headWhiteLength": 0.18,
+      "widthMode": "authored",
+      "fixedWidth": 160,
+      "widthScale": 1,
+      "widthOffset": 0,
+      "widthChaseStrength": 1,
+      "pathScaleX": 1,
+      "pathScaleY": 1,
+      "tailSamples": 5,
+      "pathColumns": 20,
+      "tailFadeStart": 0.6,
+      "headCurvature": 0
+    },
+    {
+      "id": "xsxb_rectangular_head_multilayer_v1",
+      "name": "四层·流体环纹",
+      "generated": false,
+      "presetOnly": true,
+      "texture": {
+        "path": "tools/animation_tuner/public/presets/attack_trails/four_layer_fixed_body_luma_v4.png",
+        "assetHash": "c21bd9a8d840c945bd4c98126769de2fbe4cde5b63e04464bb64578cde5c3afe",
+        "name": "four_layer_fixed_body_luma_v4.png",
+        "type": "image/png",
+        "width": 256,
+        "height": 256,
+        "hasEffectiveAlpha": false
+      },
+      "invertTexture": false,
+      "colorMode": "solid",
+      "color": "#e8ecf1",
+      "gradientStops": [
+        {
+          "id": "gradient_stop_bottom",
+          "position": 0,
+          "color": "#cbd3dc"
+        },
+        {
+          "id": "gradient_stop_top",
+          "position": 1,
+          "color": "#ffffff"
+        }
+      ],
+      "materialLayers": {
+        "streaks": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/four_layer_shared_detail_liquid_v4.png",
+            "assetHash": "48bf9fc233ea701ca84312d4a83804164dbcee14f3d3fd0436e06f2df629298d",
+            "name": "four_layer_shared_detail_liquid_v4.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#dce6f0",
+          "strength": 0.95,
+          "blendMode": "screen",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        },
+        "breakup": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/four_layer_shared_detail_liquid_v4.png",
+            "assetHash": "48bf9fc233ea701ca84312d4a83804164dbcee14f3d3fd0436e06f2df629298d",
+            "name": "four_layer_shared_detail_liquid_v4.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffffff",
+          "strength": 0.32,
+          "blendMode": "normal",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        },
+        "core": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/four_layer_fixed_edge_luma_v4.png",
+            "assetHash": "c6b7cd0991077e8acf1c8d09c386c581fb0d21f8cdab0d1584d7ee64e587b268",
+            "name": "four_layer_fixed_edge_luma_v4.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffffff",
+          "strength": 1.25,
+          "blendMode": "add",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        }
+      },
+      "bodyOpacityFloor": 0,
+      "bodyDetailStrength": 1,
+      "bodyWhiteThreshold": 1,
+      "coreEdge": "top",
+      "glowColor": "#ffffff",
+      "glowStrength": 0.7,
+      "glowRadius": 18,
+      "headLightBoost": 0.35,
+      "headWhitePreserve": 0,
+      "headWhiteLength": 0.18,
+      "widthMode": "authored",
+      "fixedWidth": 160,
+      "widthScale": 1,
+      "widthOffset": 0,
+      "widthChaseStrength": 1,
+      "pathScaleX": 1,
+      "pathScaleY": 1,
+      "tailSamples": 5,
+      "pathColumns": 20,
+      "tailFadeStart": 0.6,
+      "headCurvature": 0
+    },
+    {
+      "id": "xsxb_four_layer_ribbons_v1",
+      "name": "四层·流动带",
+      "generated": false,
+      "presetOnly": true,
+      "texture": {
+        "path": "tools/animation_tuner/public/presets/attack_trails/four_layer_fixed_body_luma_v4.png",
+        "assetHash": "c21bd9a8d840c945bd4c98126769de2fbe4cde5b63e04464bb64578cde5c3afe",
+        "name": "four_layer_fixed_body_luma_v4.png",
+        "type": "image/png",
+        "width": 256,
+        "height": 256,
+        "hasEffectiveAlpha": false
+      },
+      "invertTexture": false,
+      "colorMode": "solid",
+      "color": "#e8ecf1",
+      "gradientStops": [
+        {
+          "id": "gradient_stop_bottom",
+          "position": 0,
+          "color": "#cbd3dc"
+        },
+        {
+          "id": "gradient_stop_top",
+          "position": 1,
+          "color": "#ffffff"
+        }
+      ],
+      "materialLayers": {
+        "streaks": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/four_layer_shared_detail_ribbons_v4.png",
+            "assetHash": "d4ccbf164029d9b603d92a86194567989c1d48234ef91910e340de6ed0a91bf5",
+            "name": "four_layer_shared_detail_ribbons_v4.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#dce6f0",
+          "strength": 0.95,
+          "blendMode": "screen",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        },
+        "breakup": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/four_layer_shared_detail_ribbons_v4.png",
+            "assetHash": "d4ccbf164029d9b603d92a86194567989c1d48234ef91910e340de6ed0a91bf5",
+            "name": "four_layer_shared_detail_ribbons_v4.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffffff",
+          "strength": 0.32,
+          "blendMode": "normal",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        },
+        "core": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/four_layer_fixed_edge_luma_v4.png",
+            "assetHash": "c6b7cd0991077e8acf1c8d09c386c581fb0d21f8cdab0d1584d7ee64e587b268",
+            "name": "four_layer_fixed_edge_luma_v4.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffffff",
+          "strength": 1.25,
+          "blendMode": "add",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        }
+      },
+      "bodyOpacityFloor": 0,
+      "bodyDetailStrength": 1,
+      "bodyWhiteThreshold": 1,
+      "coreEdge": "top",
+      "glowColor": "#ffffff",
+      "glowStrength": 0.7,
+      "glowRadius": 18,
+      "headLightBoost": 0.35,
+      "headWhitePreserve": 0,
+      "headWhiteLength": 0.18,
+      "widthMode": "authored",
+      "fixedWidth": 160,
+      "widthScale": 1,
+      "widthOffset": 0,
+      "widthChaseStrength": 1,
+      "pathScaleX": 1,
+      "pathScaleY": 1,
+      "tailSamples": 5,
+      "pathColumns": 20,
+      "tailFadeStart": 0.6,
+      "headCurvature": 0
+    },
+    {
+      "id": "xsxb_four_layer_eroded_v1",
+      "name": "四层·蚀刻斑块",
+      "generated": false,
+      "presetOnly": true,
+      "texture": {
+        "path": "tools/animation_tuner/public/presets/attack_trails/four_layer_fixed_body_luma_v4.png",
+        "assetHash": "c21bd9a8d840c945bd4c98126769de2fbe4cde5b63e04464bb64578cde5c3afe",
+        "name": "four_layer_fixed_body_luma_v4.png",
+        "type": "image/png",
+        "width": 256,
+        "height": 256,
+        "hasEffectiveAlpha": false
+      },
+      "invertTexture": false,
+      "colorMode": "solid",
+      "color": "#e8ecf1",
+      "gradientStops": [
+        {
+          "id": "gradient_stop_bottom",
+          "position": 0,
+          "color": "#cbd3dc"
+        },
+        {
+          "id": "gradient_stop_top",
+          "position": 1,
+          "color": "#ffffff"
+        }
+      ],
+      "materialLayers": {
+        "streaks": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/four_layer_shared_detail_eroded_v4.png",
+            "assetHash": "b2892e93dad0baae866d36a8c0590a3089c5494a9dbf9e1c562042195d0612fc",
+            "name": "four_layer_shared_detail_eroded_v4.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#dce6f0",
+          "strength": 0.95,
+          "blendMode": "screen",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        },
+        "breakup": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/four_layer_shared_detail_eroded_v4.png",
+            "assetHash": "b2892e93dad0baae866d36a8c0590a3089c5494a9dbf9e1c562042195d0612fc",
+            "name": "four_layer_shared_detail_eroded_v4.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffffff",
+          "strength": 0.32,
+          "blendMode": "normal",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        },
+        "core": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/four_layer_fixed_edge_luma_v4.png",
+            "assetHash": "c6b7cd0991077e8acf1c8d09c386c581fb0d21f8cdab0d1584d7ee64e587b268",
+            "name": "four_layer_fixed_edge_luma_v4.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffffff",
+          "strength": 1.25,
+          "blendMode": "add",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        }
+      },
+      "bodyOpacityFloor": 0,
+      "bodyDetailStrength": 1,
+      "bodyWhiteThreshold": 1,
+      "coreEdge": "top",
+      "glowColor": "#ffffff",
+      "glowStrength": 0.7,
+      "glowRadius": 18,
+      "headLightBoost": 0.35,
+      "headWhitePreserve": 0,
+      "headWhiteLength": 0.18,
+      "widthMode": "authored",
+      "fixedWidth": 160,
+      "widthScale": 1,
+      "widthOffset": 0,
+      "widthChaseStrength": 1,
+      "pathScaleX": 1,
+      "pathScaleY": 1,
+      "tailSamples": 5,
+      "pathColumns": 20,
+      "tailFadeStart": 0.6,
+      "headCurvature": 0
+    },
+    {
+      "id": "xsxb_reference_pink_four_layer_v1",
+      "name": "四层·粉色剑光参考复刻",
+      "generated": false,
+      "presetOnly": true,
+      "texture": {
+        "path": "tools/animation_tuner/public/presets/attack_trails/reference_pink_body_luma.png",
+        "assetHash": "6fbfc4065fd4e41eb91c55bc8305aa033fb3770f5df25d8b8c562c912978528b",
+        "name": "reference_pink_body_luma.png",
+        "type": "image/png",
+        "width": 256,
+        "height": 256,
+        "hasEffectiveAlpha": false
+      },
+      "invertTexture": false,
+      "colorMode": "solid",
+      "color": "#f54870",
+      "gradientStops": [
+        {
+          "id": "gradient_stop_bottom",
+          "position": 0,
+          "color": "#f54870"
+        },
+        {
+          "id": "gradient_stop_top",
+          "position": 1,
+          "color": "#ff6b91"
+        }
+      ],
+      "materialLayers": {
+        "streaks": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/reference_pink_shared_luma.png",
+            "assetHash": "5d0f0a36b151c9300b2afc27f55bdea0a12cd98b5e2d72067c97bf8b7344a4b5",
+            "name": "reference_pink_shared_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#3b001c",
+          "strength": 1.35,
+          "blendMode": "normal",
+          "invert": false,
+          "threshold": 0.34,
+          "softness": 0.18,
+          "expansion": 0.01
+        },
+        "breakup": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/reference_pink_shared_luma.png",
+            "assetHash": "5d0f0a36b151c9300b2afc27f55bdea0a12cd98b5e2d72067c97bf8b7344a4b5",
+            "name": "reference_pink_shared_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#ffffff",
+          "strength": 0.7,
+          "blendMode": "normal",
+          "invert": false,
+          "threshold": 0.02,
+          "softness": 0.44,
+          "expansion": 0.04
+        },
+        "core": {
+          "enabled": true,
+          "texture": {
+            "path": "tools/animation_tuner/public/presets/attack_trails/reference_pink_edge_luma.png",
+            "assetHash": "78b4cc883fc8f17d5465870b535f871904a6da9bc948a464733ef960e955396d",
+            "name": "reference_pink_edge_luma.png",
+            "type": "image/png",
+            "width": 256,
+            "height": 256,
+            "hasEffectiveAlpha": false
+          },
+          "color": "#fffafc",
+          "strength": 1.6,
+          "blendMode": "add",
+          "invert": false,
+          "threshold": 0,
+          "softness": 0,
+          "expansion": 0
+        }
+      },
+      "bodyOpacityFloor": 0.3,
+      "bodyDetailStrength": 0.25,
+      "bodyWhiteThreshold": 0.86,
+      "coreEdge": "top",
+      "glowColor": "#ff1765",
+      "glowStrength": 2.5,
+      "glowRadius": 30,
+      "headLightBoost": 0.7,
+      "headWhitePreserve": 1,
+      "headWhiteLength": 0.175,
+      "widthMode": "fixed",
+      "fixedWidth": 110,
+      "widthScale": 1,
+      "widthOffset": 0,
+      "widthChaseStrength": 0.12,
+      "pathScaleX": 0.68,
+      "pathScaleY": 1,
+      "tailSamples": 5,
+      "pathColumns": 32,
+      "tailFadeStart": 0.72,
+      "headCurvature": 0
+    }
+  ],
+  "migratedProjectIds": [
+    "huanchao_boss_rush",
+    "ft",
+    "barrel_survivor",
+    "huanchao_boss_rush_unity",
+    "lite:reskin_experiment",
+    "lite:pixel_xiaobao"
+  ]
+}

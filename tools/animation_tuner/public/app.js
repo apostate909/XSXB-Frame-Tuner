@@ -4,6 +4,7 @@ const els = {
   updateMessage: document.querySelector("#updateMessage"),
   updateButton: document.querySelector("#updateButton"),
   projectSelect: document.querySelector("#projectSelect"),
+  projectBinding: document.querySelector("#projectBinding"),
   addCodexPet: document.querySelector("#addCodexPet"),
   refreshProject: document.querySelector("#refreshProject"),
   languageSelect: document.querySelector("#languageSelect"),
@@ -14,6 +15,7 @@ const els = {
   profileFieldLabel: document.querySelector("#profileFieldLabel"),
   groupSelect: document.querySelector("#groupSelect"),
   groupFieldLabel: document.querySelector("#groupFieldLabel"),
+  groupFamilyBadge: document.querySelector("#groupFamilyBadge"),
   groupSearch: document.querySelector("#groupSearch"),
   sceneSelect: document.querySelector("#sceneSelect"),
   sceneScale: document.querySelector("#sceneScale"),
@@ -142,6 +144,7 @@ const I18N = {
     frameAttachmentRemove: "删除附加图",
     frameAttachmentRemoved: "已删除附加图",
     frameAttachmentCanvasHint: "附加帧：拖动图片移动，R+滚轮旋转，Z+滚轮缩放；拖卡片到缝隙调层级",
+    frameAttachmentTrailLocked: "拖尾编辑中：附加图层已锁定",
     frameAttachmentUploadFailed: "附加图导入失败：{message}",
     frameAttachmentCopied: "已复制附加图：{count}",
     frameAttachmentPasted: "已粘贴附加图：{count}",
@@ -153,6 +156,14 @@ const I18N = {
     audioPreviewBlocked: "音频预览被浏览器拦截：{message}",
     ghost: "残影",
     group: "组",
+    animationFamilyRopeDart: "绳镖",
+    animationFamilyMovement: "移动",
+    animationFamilyCombat: "战斗",
+    animationFamilyState: "状态",
+    animationFamilyVfx: "特效",
+    animationFamilyProps: "道具",
+    animationFamilyOther: "其他",
+    animationFamilyCount: "{count} 个动作",
     groupBase: "组 Base",
     groupFps: "组 FPS",
     groupTimeConflict: "当前已经调过单帧时间。确认后会从当前总时长开始切换到组时间，并清除单帧时间设置。",
@@ -207,10 +218,13 @@ const I18N = {
     rootY: "Root Y",
     rotate: "旋转",
     saveFailed: "保存失败：{message}",
+    staleSaveBlocked: "服务器已有较新的数据，本次旧页面保存已被阻止。请刷新页面后再修改。",
     saveTuning: "保存调参",
     saveTuningDirty: "保存调参 *",
     savedAt: "已保存 {time}",
     saving: "正在保存...",
+    godotSynced: "已保存并同步到 Godot",
+    godotSyncFailed: "Tuner 已保存，但 Godot 同步失败：{message}",
     scale: "缩放",
     scaleX: "缩放 X",
     scaleY: "缩放 Y",
@@ -291,6 +305,7 @@ const I18N = {
     frameAttachmentRemove: "Delete attached image",
     frameAttachmentRemoved: "Attached image deleted",
     frameAttachmentCanvasHint: "Attached: drag image, R/Z+wheel, drag cards into gaps",
+    frameAttachmentTrailLocked: "Trail editing: attached layers are locked",
     frameAttachmentUploadFailed: "Attached image import failed: {message}",
     frameAttachmentCopied: "Copied attached images: {count}",
     frameAttachmentPasted: "Pasted attached images: {count}",
@@ -302,6 +317,14 @@ const I18N = {
     audioPreviewBlocked: "Audio preview blocked: {message}",
     ghost: "Ghost",
     group: "Group",
+    animationFamilyRopeDart: "Rope Dart",
+    animationFamilyMovement: "Movement",
+    animationFamilyCombat: "Combat",
+    animationFamilyState: "State",
+    animationFamilyVfx: "VFX",
+    animationFamilyProps: "Props",
+    animationFamilyOther: "Other",
+    animationFamilyCount: "{count} actions",
     groupBase: "Group Base",
     groupFps: "Group FPS",
     groupTimeConflict: "Frame timing has already been adjusted. Confirm to switch from the current total duration to group timing and clear frame duration overrides.",
@@ -356,10 +379,13 @@ const I18N = {
     rootY: "Root Y",
     rotate: "Rotate",
     saveFailed: "Save failed: {message}",
+    staleSaveBlocked: "The server has newer data. This stale-page save was blocked; refresh before editing again.",
     saveTuning: "Save tuning",
     saveTuningDirty: "Save tuning *",
     savedAt: "Saved {time}",
     saving: "Saving...",
+    godotSynced: "Saved and synced to Godot",
+    godotSyncFailed: "Saved in the Tuner, but Godot sync failed: {message}",
     scale: "Scale",
     scaleX: "Scale X",
     scaleY: "Scale Y",
@@ -783,6 +809,18 @@ function activeProjectId() {
   return config?.activeProjectId || selectedProjectId || "";
 }
 
+function bindingProjectId() {
+  return window.XsxbBindingScope?.bindingProjectId(config) || activeProjectId();
+}
+
+function isBindingProjectId(projectId) {
+  return window.XsxbBindingScope?.containsProjectId(config, projectId) ?? (!projectId || projectId === activeProjectId());
+}
+
+function canonicalBindingProjectId(projectId) {
+  return window.XsxbBindingScope?.canonicalProjectId(config, projectId) || projectId || bindingProjectId();
+}
+
 function activeSceneProfileId() {
   if (selectedProfileId && selectedProfileId !== "all") return selectedProfileId;
   return currentGroup?.profileId || "";
@@ -896,11 +934,11 @@ function collectSceneSettings() {
 function frameAudioKey(index = selectedFrame, group = currentGroup) {
   if (!group) return "";
   return [
-    activeProjectId(),
+    bindingProjectId(),
     group.tuningTarget || "player",
     group.profileId || "all",
     group.type || "animation",
-    group.name || "",
+    tuningAnimationName(group),
     group.source || "",
     sourceFrameIndex(index, group),
   ].join(":");
@@ -910,7 +948,7 @@ function frameAudioMetadata(index = selectedFrame, group = currentGroup) {
   if (!group) return null;
   const frame = sourceFrameIndex(index, group);
   return {
-    projectId: activeProjectId(),
+    projectId: bindingProjectId(),
     tuningTarget: group.tuningTarget || "player",
     profileId: group.profileId || "all",
     groupType: group.type || "animation",
@@ -928,7 +966,7 @@ function frameAudioMetadataFromKey(key) {
   if (!Number.isFinite(frame)) return null;
   if (parts.length >= 7) {
     return {
-      projectId: parts[0] || "default",
+      projectId: canonicalBindingProjectId(parts[0] || "default"),
       tuningTarget: parts[1] || "player",
       profileId: parts[2] || "all",
       groupType: parts[3] || "animation",
@@ -948,6 +986,27 @@ function frameAudioMetadataFromKey(key) {
     frame,
     displayFrame: frame,
   };
+}
+
+function frameBindingMetadataFromRecord(source = {}) {
+  const nested = source.metadata && typeof source.metadata === "object" ? source.metadata : {};
+  const raw = { ...source, ...nested };
+  const frame = Number(raw.frame);
+  if (!raw.animation || !Number.isFinite(frame)) return null;
+  return {
+    projectId: canonicalBindingProjectId(raw.projectId || bindingProjectId()),
+    tuningTarget: raw.tuningTarget || "player",
+    profileId: raw.profileId || "all",
+    groupType: raw.groupType || "animation",
+    animation: raw.animation,
+    source: raw.source || "",
+    frame,
+    displayFrame: Number.isFinite(Number(raw.displayFrame)) ? Number(raw.displayFrame) : frame,
+  };
+}
+
+function canonicalFrameBindingKey(key, metadata = {}) {
+  return window.XsxbBindingScope?.bindingKey(config, key, metadata) || String(key || "");
 }
 
 function newLocalId(prefix = "id") {
@@ -982,8 +1041,10 @@ function normalizeAttachmentLayerOrder(source = {}) {
 
 function normalizeFrameImageAttachment(raw) {
   const source = raw && typeof raw === "object" ? raw : {};
-  const metadata = source.metadata && typeof source.metadata === "object" ? source.metadata : {};
-  const key = String(source.key || source.frameKey || "");
+  const metadata = frameBindingMetadataFromRecord(source)
+    || frameAudioMetadataFromKey(source.key || source.frameKey)
+    || {};
+  const key = canonicalFrameBindingKey(source.key || source.frameKey, metadata);
   const layerOrder = normalizeAttachmentLayerOrder(source);
   return {
     id: String(source.id || newLocalId("layer")),
@@ -1005,7 +1066,7 @@ function normalizeFrameImageAttachment(raw) {
 function loadFrameImageAttachmentsFromProject() {
   frameImageAttachments = (Array.isArray(config?.frameImageAttachments) ? config.frameImageAttachments : [])
     .map(normalizeFrameImageAttachment)
-    .filter((attachment) => attachment.path && attachment.key);
+    .filter((attachment) => attachment.path && attachment.key && isBindingProjectId(attachment.metadata?.projectId));
   if (!frameImageAttachments.some((attachment) => attachment.id === selectedAttachmentId)) {
     selectedAttachmentId = "";
   }
@@ -1053,6 +1114,26 @@ function nextAboveAttachmentLayerOrder(index = selectedFrame, group = currentGro
   return Math.max(1, maxOrder + 1);
 }
 
+function frameAttachmentEditingLocked() {
+  return attackTrailEditor?.isEditingWorkspace?.() === true;
+}
+
+function syncFrameAttachmentEditingLock(locked = frameAttachmentEditingLocked()) {
+  heldAttachmentTransformKeys.clear();
+  if (locked && drag?.mode === "attachment") {
+    drag = null;
+    els.stage?.classList.remove("dragging");
+  }
+  if (locked) {
+    layerCardDrag = null;
+    clearLayerDragPreview();
+  }
+  syncAdjustmentInputs();
+  renderFilmstrip();
+  draw();
+  if (locked) status(t("frameAttachmentTrailLocked"));
+}
+
 function selectedFrameAttachment() {
   if (!selectedAttachmentId) return null;
   return frameImageAttachments.find((attachment) => attachment.id === selectedAttachmentId) || null;
@@ -1066,6 +1147,7 @@ function implicitSingleFrameAttachment() {
 }
 
 function directManipulationAttachment() {
+  if (frameAttachmentEditingLocked()) return null;
   const indexes = selectedFrameIndexes();
   if (indexes.length !== 1) return null;
   const selected = selectedFrameAttachment();
@@ -1078,7 +1160,7 @@ function canDirectManipulateSelectedAttachment() {
 }
 
 function activateFrameAttachmentForEditing(attachment) {
-  if (!attachment) return false;
+  if (!attachment || frameAttachmentEditingLocked()) return false;
   const changed = selectedAttachmentId !== attachment.id || adjustmentMode !== "frame";
   selectedAttachmentId = attachment.id;
   adjustmentMode = "frame";
@@ -1101,7 +1183,7 @@ function attachmentFrameIndex(attachment, group = currentGroup) {
 }
 
 function selectFrameImageAttachment(attachment, index = selectedFrame, group = currentGroup) {
-  if (!attachment || !group) return;
+  if (!attachment || !group || frameAttachmentEditingLocked()) return;
   selectedAttachmentId = attachment.id;
   setSingleFrameSelection(index, group);
   if (adjustmentMode !== "frame") setAdjustmentMode("frame");
@@ -1131,7 +1213,7 @@ function frameImageAttachmentClipboardItem(attachment) {
 }
 
 function copyFrameImageAttachments() {
-  if (!currentGroup) return false;
+  if (!currentGroup || frameAttachmentEditingLocked()) return false;
   const selectedAttachment = selectedFrameAttachment();
   const attachments = selectedAttachment
     ? [selectedAttachment]
@@ -1141,18 +1223,18 @@ function copyFrameImageAttachments() {
     return false;
   }
   frameImageAttachmentClipboard = attachments.map(frameImageAttachmentClipboardItem);
-  frameImageAttachmentClipboardProjectId = activeProjectId();
+  frameImageAttachmentClipboardProjectId = bindingProjectId();
   status(t("frameAttachmentCopied", { count: frameImageAttachmentClipboard.length }));
   return true;
 }
 
 function pasteFrameImageAttachments() {
-  if (!currentGroup) return false;
+  if (!currentGroup || frameAttachmentEditingLocked()) return false;
   if (!frameImageAttachmentClipboard.length) {
     status(t("frameAttachmentPasteEmpty"));
     return false;
   }
-  if (frameImageAttachmentClipboardProjectId && frameImageAttachmentClipboardProjectId !== activeProjectId()) {
+  if (frameImageAttachmentClipboardProjectId && !isBindingProjectId(frameImageAttachmentClipboardProjectId)) {
     status(t("frameAttachmentPasteProjectMismatch"));
     return false;
   }
@@ -1201,18 +1283,9 @@ function resetFrameAudioBindings() {
 }
 
 function frameAudioKeyFromBinding(binding) {
-  if (binding?.key) return String(binding.key);
-  const metadata = binding?.metadata || {};
-  if (!metadata.animation || !Number.isFinite(Number(metadata.frame))) return "";
-  return [
-    metadata.projectId || activeProjectId(),
-    metadata.tuningTarget || "player",
-    metadata.profileId || "all",
-    metadata.groupType || "animation",
-    metadata.animation,
-    metadata.source || "",
-    Number(metadata.frame),
-  ].join(":");
+  const metadata = frameBindingMetadataFromRecord(binding)
+    || frameAudioMetadataFromKey(binding?.key);
+  return canonicalFrameBindingKey(binding?.key, metadata || {});
 }
 
 function loadFrameAudioBindingsFromProject() {
@@ -1223,8 +1296,8 @@ function loadFrameAudioBindingsFromProject() {
     const key = frameAudioKeyFromBinding(binding);
     if (!key) continue;
     if (!binding.data && !binding.path && !binding.file) continue;
-    const metadata = binding.metadata || frameAudioMetadataFromKey(key);
-    if (metadata?.projectId && metadata.projectId !== activeProjectId()) continue;
+    const metadata = frameBindingMetadataFromRecord(binding) || frameAudioMetadataFromKey(key);
+    if (metadata?.projectId && !isBindingProjectId(metadata.projectId)) continue;
     revokeFrameAudioBinding(frameAudioBindings[key]);
     frameAudioBindings[key] = {
       key,
@@ -1307,14 +1380,18 @@ async function loadFrameAudioBindingsFromDb() {
     });
     for (const record of records) {
       if (!record?.key || !record.blob) continue;
-      const existing = frameAudioBindings[record.key];
+      const recordMetadata = frameBindingMetadataFromRecord(record) || frameAudioMetadataFromKey(record.key);
+      const recordKey = canonicalFrameBindingKey(record.key, recordMetadata || {});
+      const existing = frameAudioBindings[recordKey];
       if (!existing) continue;
-      const metadata = existing.metadata || record.metadata || frameAudioMetadataFromKey(record.key);
-      if (!metadata || (metadata.projectId && metadata.projectId !== activeProjectId())) continue;
+      const metadata = frameBindingMetadataFromRecord(existing)
+        || recordMetadata
+        || frameAudioMetadataFromKey(recordKey);
+      if (!metadata || (metadata.projectId && !isBindingProjectId(metadata.projectId))) continue;
       revokeFrameAudioBinding(existing);
-      frameAudioBindings[record.key] = {
+      frameAudioBindings[recordKey] = {
         ...existing,
-        key: record.key,
+        key: recordKey,
         name: existing.name || record.name || "audio",
         url: URL.createObjectURL(record.blob),
         type: existing.type || record.type || "",
@@ -1380,16 +1457,18 @@ function blobToDataUrl(blob) {
 async function collectFrameAudioBindingsForSave() {
   const result = [];
   for (const [key, binding] of Object.entries(frameAudioBindings)) {
-    const metadata = binding.metadata || frameAudioMetadataFromKey(key);
-    if (!metadata || metadata.projectId !== activeProjectId() || !metadata.animation) continue;
+    const metadata = frameBindingMetadataFromRecord(binding) || frameAudioMetadataFromKey(key);
+    if (!metadata || !isBindingProjectId(metadata.projectId) || !metadata.animation) continue;
     const frame = Number(metadata.frame);
     if (!Number.isFinite(frame)) continue;
     const data = binding?.blob ? await blobToDataUrl(binding.blob) : String(binding?.data || "");
     const existingPath = String(binding?.path || binding?.file || "");
     if (!data && !existingPath) continue;
+    const canonicalKey = canonicalFrameBindingKey(key, metadata);
     result.push({
-      key,
+      key: canonicalKey,
       ...metadata,
+      projectId: bindingProjectId(),
       frame,
       name: binding.name || "audio",
       type: binding.type || "",
@@ -1409,10 +1488,22 @@ async function syncFrameAudioBindingsToGame(options = {}) {
     const res = await fetch("/api/frame-audio", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ projectId: activeProjectId(), frameAudioBindings: bindings }),
+      body: JSON.stringify({
+        projectId: activeProjectId(),
+        configRevision: config?.configRevision || "",
+        allowEmpty: options.allowEmpty === true,
+        frameAudioBindings: bindings,
+      }),
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) {
+      const errorPayload = await res.json().catch(() => ({}));
+      if (res.status === 409 && errorPayload.code === "stale_config") {
+        throw new Error(t("staleSaveBlocked"));
+      }
+      throw new Error(errorPayload.error || res.statusText);
+    }
     const result = await res.json();
+    if (result.configRevision) config.configRevision = result.configRevision;
     if (Array.isArray(result.frameAudioBindings)) {
       for (const saved of result.frameAudioBindings) {
         const key = frameAudioKeyFromBinding(saved);
@@ -1497,7 +1588,7 @@ function canUseReferenceFrame(group = currentGroup) {
 }
 
 function assetUrl(frame) {
-  const version = frame?.assetVersion || (frame?.crop ? "atlas" : Date.now());
+  const version = frame?.assetVersion || frame?.assetHash || (frame?.crop ? "atlas" : Date.now());
   return `/asset?path=${encodeURIComponent(frame.path)}&v=${encodeURIComponent(version)}`;
 }
 
@@ -1527,6 +1618,7 @@ function projectLabel(project) {
   const label = project.label || project.id || "Project";
   if (project.kind === "codex_pets") return `🐾 ${label}`;
   if (project.kind === "frame_lite") return `◇ ${label}`;
+  if (project.kind === "unity" || project.engine === "unity") return `◆ Unity · ${label}`;
   return label;
 }
 
@@ -1551,6 +1643,13 @@ function renderProjectSelect() {
   document.querySelectorAll('[data-i18n="group"]').forEach((node) => { node.textContent = petMode ? t("state") : t("group"); });
   document.body.classList.toggle("codexPetsProject", petMode);
   document.body.classList.toggle("frameTunerLite", liteMode);
+  document.body.classList.toggle("unityProject", config?.projectEngine === "unity" || config?.projectKind === "unity");
+  if (els.projectBinding) {
+    const engine = config?.projectEngine || config?.activeProject?.engine || config?.projectKind || "godot";
+    const root = config?.projectRoot || config?.workspaceRoot || "";
+    els.projectBinding.textContent = `${String(engine).toUpperCase()} · ${root}`;
+    els.projectBinding.title = root;
+  }
 }
 
 function resetProjectSession() {
@@ -1637,6 +1736,62 @@ function groupLabel(group) {
   return `${typeLabel} - ${group.name}${runtimeLabel}${groupBindingLabel(group)}`;
 }
 
+const ANIMATION_FAMILY_I18N = Object.freeze({
+  rope_dart: "animationFamilyRopeDart",
+  movement: "animationFamilyMovement",
+  combat: "animationFamilyCombat",
+  state: "animationFamilyState",
+  vfx: "animationFamilyVfx",
+  props: "animationFamilyProps",
+  other: "animationFamilyOther",
+});
+
+function animationFamilyLabel(familyId) {
+  return t(ANIMATION_FAMILY_I18N[familyId] || ANIMATION_FAMILY_I18N.other);
+}
+
+function conciseGroupLabel(group) {
+  const runtimeLabel = group.skillName && group.runtimeAnimation ? ` (${group.runtimeAnimation})` : "";
+  return `${group.name}${runtimeLabel}${groupBindingLabel(group)}`;
+}
+
+function groupedAnimationOptions(groups, options = {}) {
+  const includeProfile = options.includeProfile === true;
+  return window.XsxbAnimationFamilies.organizeAnimationGroups(groups, { includeProfile })
+    .map((section) => {
+      const familyLabel = animationFamilyLabel(section.familyId);
+      const sectionName = includeProfile
+        ? `${section.profileLabel} · ${familyLabel}`
+        : familyLabel;
+      const countLabel = t("animationFamilyCount", { count: section.groups.length });
+      const optionMarkup = section.groups
+        .map((group) => `<option value="${escapeHtml(group.uiId)}">${escapeHtml(conciseGroupLabel(group))}</option>`)
+        .join("");
+      return `<optgroup label="${escapeHtml(`${sectionName} · ${countLabel}`)}">${optionMarkup}</optgroup>`;
+    })
+    .join("");
+}
+
+function updateGroupFamilyBadge(selectedUiId, visibleGroups) {
+  if (!els.groupFamilyBadge) return;
+  const selectedGroup = (visibleGroups || []).find((group) => group.uiId === selectedUiId)
+    || (visibleGroups || [])[0];
+  if (!selectedGroup) {
+    els.groupFamilyBadge.hidden = true;
+    els.groupFamilyBadge.textContent = "";
+    return;
+  }
+  const familyId = window.XsxbAnimationFamilies.animationFamilyId(selectedGroup);
+  const familyCount = (config?.groups || []).filter((group) => (
+    group.profileId === selectedGroup.profileId
+    && window.XsxbAnimationFamilies.animationFamilyId(group) === familyId
+  )).length;
+  els.groupFamilyBadge.dataset.family = familyId;
+  els.groupFamilyBadge.textContent = `${animationFamilyLabel(familyId)} · ${familyCount}`;
+  els.groupFamilyBadge.title = `${selectedGroup.profileLabel || selectedGroup.profileId} · ${t("animationFamilyCount", { count: familyCount })}`;
+  els.groupFamilyBadge.hidden = false;
+}
+
 function filteredGroups() {
   if (!config?.groups) return [];
   let groups = (!selectedProfileId || selectedProfileId === "all")
@@ -1683,12 +1838,13 @@ function renderProfileSelect() {
 function renderGroupSelect(selectedUiId = currentGroup?.uiId) {
   const groups = filteredGroups();
   els.groupSelect.innerHTML = groups.length
-    ? groups.map((group) => `<option value="${escapeHtml(group.uiId)}">${escapeHtml(groupLabel(group))}</option>`).join("")
+    ? groupedAnimationOptions(groups, { includeProfile: !selectedProfileId || selectedProfileId === "all" })
     : `<option value="">${escapeHtml(t("noMatchingGroups"))}</option>`;
   els.groupSelect.disabled = !groups.length;
   if (selectedUiId && groups.some((group) => group.uiId === selectedUiId)) {
     els.groupSelect.value = selectedUiId;
   }
+  updateGroupFamilyBadge(els.groupSelect.value, groups);
   return groups;
 }
 
@@ -1696,7 +1852,7 @@ function renderChainGroupSelect(selectedUiId = els.chainGroupSelect?.value || ""
   if (!els.chainGroupSelect) return;
   els.chainGroupSelect.innerHTML = [
     `<option value="">${escapeHtml(t("none"))}</option>`,
-    ...config.groups.map((group) => `<option value="${escapeHtml(group.uiId)}">${escapeHtml(groupLabel(group))}</option>`),
+    groupedAnimationOptions(config.groups, { includeProfile: true }),
   ].join("");
   els.chainGroupSelect.value = selectedUiId || "";
 }
@@ -1742,7 +1898,7 @@ async function loadConfig() {
     loadFrameAudioBindingsFromProject();
     await loadFrameAudioBindingsFromDb();
   }
-  if (config.projectKind !== "codex_pets" && Object.keys(frameAudioBindings).length) {
+  if (config.projectKind !== "codex_pets" && config.projectEngine !== "unity" && Object.keys(frameAudioBindings).length) {
     await syncFrameAudioBindingsToGame({ silent: true }).catch((error) => {
       status(t("boxSyncFailed", { message: error.message }));
     });
@@ -1767,8 +1923,10 @@ async function loadConfig() {
     await selectGroup(initialGroup, { frameIndex: requestedFrame });
     if (PAGE_PARAMS.get("attackTrail") === "1" && config.projectKind !== "codex_pets") {
       attackTrailEditor.enabled = true;
+      attackTrailEditor.workspaceMode = "draw";
+      attackTrailEditor.guidesVisible = false;
       attackTrailEditor.segmentId = attackTrailEditor._displaySegments()[0]?.id || "";
-      attackTrailEditor.stickId = attackTrailEditor._segment()?.sticks[0]?.id || "";
+      attackTrailEditor.stickId = "";
       attackTrailEditor.render();
       document.querySelector("#attackTrailPanel").open = true;
       draw();
@@ -3621,7 +3779,7 @@ function canEditCharacterTransform(group = currentGroup) {
 }
 
 function canEditAdjustmentMode(mode = adjustmentMode, group = currentGroup) {
-  if (selectedFrameAttachment()) return mode === "frame";
+  if (selectedFrameAttachment()) return mode === "frame" && !frameAttachmentEditingLocked();
   if (mode === "character") return canEditCharacterTransform(group);
   if (mode === "group") return canEditGroupTransform(group);
   if (mode === "frame") return canEditFrameTransform(group);
@@ -3709,7 +3867,7 @@ function stepAdjustmentInput(input, direction, multiplier = 1) {
     els.baseScaleX.value = input.value;
     els.baseScaleY.value = input.value;
   }
-  updateAdjustmentFromInputs();
+  updateAdjustmentFromInputs(input);
   endStepAdjustmentEdit();
 }
 
@@ -4018,7 +4176,7 @@ function animateLayerCardRects(previousRects) {
 }
 
 function setupLayerCardDrag(card, info) {
-  if (!currentGroup || info.groupUiId !== currentGroup.uiId) return;
+  if (!currentGroup || info.groupUiId !== currentGroup.uiId || frameAttachmentEditingLocked()) return;
   card.draggable = true;
   card.classList.add("layerDraggable");
   card.dataset.layerCardKey = layerCardDomKey(info);
@@ -4040,7 +4198,7 @@ function setupLayerCardDrag(card, info) {
 }
 
 function setupLayerStackDrag(stack, index, group) {
-  if (!currentGroup || group.uiId !== currentGroup.uiId) return;
+  if (!currentGroup || group.uiId !== currentGroup.uiId || frameAttachmentEditingLocked()) return;
   stack.addEventListener("dragover", (event) => {
     if (!layerCardDrag || layerCardDrag.groupUiId !== group.uiId || layerCardDrag.frameIndex !== index) return;
     event.preventDefault();
@@ -4066,6 +4224,7 @@ function setupLayerStackDrag(stack, index, group) {
 }
 
 function applyFrameLayerCardOrder(index, group, orderedInfos) {
+  if (frameAttachmentEditingLocked()) return false;
   const mainIndex = orderedInfos.findIndex((info) => info.type === "main");
   if (mainIndex < 0) return false;
   for (let orderIndex = 0; orderIndex < orderedInfos.length; orderIndex += 1) {
@@ -4084,7 +4243,7 @@ function applyFrameLayerCardOrder(index, group, orderedInfos) {
 }
 
 function moveFrameLayerCardToIndex(dragInfo, insertionIndex) {
-  if (!currentGroup || dragInfo.groupUiId !== currentGroup.uiId) return;
+  if (!currentGroup || dragInfo.groupUiId !== currentGroup.uiId || frameAttachmentEditingLocked()) return;
   const frameIndex = clampFrameIndex(dragInfo.frameIndex, currentGroup);
   const order = movedLayerCardOrder(dragInfo, insertionIndex, currentGroup);
   if (!order) return;
@@ -4110,19 +4269,24 @@ function moveFrameLayerCardToIndex(dragInfo, insertionIndex) {
 
 function createFrameImageAttachmentCard(attachment, index, group, label) {
   const isCurrent = group.uiId === currentGroup.uiId;
+  const locked = frameAttachmentEditingLocked();
   const card = document.createElement("button");
   const selected = selectedAttachmentId === attachment.id;
   const below = attachmentLayerOrder(attachment) < 0;
-  card.className = `thumb attachmentThumb ${selected ? "selectedAttachment" : ""} ${below ? "layerBelow" : "layerAbove"} ${!isCurrent ? "chained" : ""}`;
+  card.className = `thumb attachmentThumb ${selected ? "selectedAttachment" : ""} ${below ? "layerBelow" : "layerAbove"} ${!isCurrent ? "chained" : ""} ${locked ? "lockedAttachment" : ""}`;
   const layerTitle = below ? t("frameAttachmentLayerBelow") : t("frameAttachmentLayerAbove");
-  card.title = `${label}${index + 1} - ${attachment.name || "image"}\n${layerTitle}`;
+  card.title = `${label}${index + 1} - ${attachment.name || "image"}\n${layerTitle}${locked ? `\n${t("frameAttachmentTrailLocked")}` : ""}`;
+  card.setAttribute("aria-disabled", locked ? "true" : "false");
   card.innerHTML = `
     <span class="attachmentActions">
       <button class="attachmentAction" data-action="remove-attachment" title="${escapeHtml(t("frameAttachmentRemove"))}">×</button>
     </span>
+    ${locked ? '<span class="attachmentLockBadge" aria-hidden="true">锁</span>' : ""}
     <img src="${assetUrl(attachment)}" alt="">
     <span class="thumbLabel">${label}${index + 1}</span>`;
-  card.querySelector('[data-action="remove-attachment"]').addEventListener("click", (event) => {
+  const removeButton = card.querySelector('[data-action="remove-attachment"]');
+  removeButton.disabled = locked;
+  removeButton.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     removeFrameImageAttachment(attachment.id);
@@ -4130,6 +4294,10 @@ function createFrameImageAttachmentCard(attachment, index, group, label) {
   card.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
+    if (frameAttachmentEditingLocked()) {
+      status(t("frameAttachmentTrailLocked"));
+      return;
+    }
     if (group.uiId !== currentGroup.uiId) {
       await selectGroup(group, { frameIndex: index, preserveView: true, stopPlayback: false, selectedAttachmentId: attachment.id });
       return;
@@ -4138,6 +4306,51 @@ function createFrameImageAttachmentCard(attachment, index, group, label) {
   });
   setupLayerCardDrag(card, layerCardInfoForAttachment(attachment, index, group));
   return card;
+}
+
+async function duplicateFrameAfter(index, group) {
+  if (!group || config?.projectKind === "codex_pets" || !group.profileId) return;
+  if (dirty) await save();
+  const runtimeAnimation = String(group.runtimeAnimation || group.name || "");
+  const animationId = runtimeAnimation.includes("/")
+    ? runtimeAnimation.slice(runtimeAnimation.lastIndexOf("/") + 1)
+    : runtimeAnimation;
+  const groupIdentity = {
+    profileId: group.profileId,
+    runtimeAnimation,
+    name: group.name,
+  };
+  const res = await fetch("/api/duplicate-frame", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      projectId: activeProjectId(),
+      configRevision: config?.configRevision || "",
+      profileId: group.profileId,
+      animationId,
+      frameIndex: index,
+    }),
+  });
+  if (!res.ok) {
+    const errorPayload = await res.json().catch(() => ({}));
+    if (res.status === 409 && errorPayload.code === "stale_config") {
+      throw new Error(t("staleSaveBlocked"));
+    }
+    throw new Error(errorPayload.error || res.statusText);
+  }
+  const result = await res.json().catch(() => ({}));
+  await loadConfig();
+  const copiedGroup = config.groups.find((entry) => (
+    entry.profileId === groupIdentity.profileId
+    && String(entry.runtimeAnimation || entry.name || "") === groupIdentity.runtimeAnimation
+  )) || config.groups.find((entry) => entry.profileId === groupIdentity.profileId && entry.name === groupIdentity.name);
+  if (copiedGroup) {
+    await selectGroup(copiedGroup, {
+      frameIndex: Number(result.frameIndex ?? index + 1),
+      preserveView: true,
+    });
+  }
+  status(`已复制第 ${index + 1} 帧，并插入到右侧。`);
 }
 
 function renderFilmstripGroup(group, label) {
@@ -4157,6 +4370,7 @@ function renderFilmstripGroup(group, label) {
     const sourceLabel = Array.isArray(group.sourceFrameIndices) && group.sourceFrameIndices.length ? ` (src ${sourceFrameIndex(index, group) + 1})` : "";
     item.title = `${label}${index + 1} - ${frame.name}${sourceLabel}`;
     const canAdjustDuration = isCurrent && canEditFramePlayback(group) && !usesAttachedPlaybackTiming(group);
+    const canDuplicate = isCurrent && config?.projectKind !== "codex_pets" && Boolean(group.profileId);
     const audioBadge = audioBinding
       ? `<span class="frameSfxBadge" data-action="delete-sfx" role="button" tabindex="0" title="${escapeHtml(audioBinding.name || "audio")}"><span class="frameSfxSpeaker" aria-hidden="true">&#128266;</span><span class="frameSfxRemove" aria-hidden="true">x</span></span>`
       : "";
@@ -4168,6 +4382,7 @@ function renderFilmstripGroup(group, label) {
         <button class="durationStep" data-delta="${-FRAME_DURATION_STEP_MS}" ${canAdjustDuration ? "" : "disabled"} title="-${FRAME_DURATION_STEP_MS}ms">-</button>
         <b>${frameDurationMsLabel(index, group)}</b>
         <button class="durationStep" data-delta="${FRAME_DURATION_STEP_MS}" ${canAdjustDuration ? "" : "disabled"} title="+${FRAME_DURATION_STEP_MS}ms">+</button>
+        <span class="frameCopyButton ${canDuplicate ? "" : "disabled"}" data-action="duplicate-frame" role="button" tabindex="${canDuplicate ? "0" : "-1"}" aria-disabled="${canDuplicate ? "false" : "true"}" title="复制本帧并插入右侧">⧉</span>
       </div>`;
     const sfxBadge = item.querySelector(".frameSfxBadge");
     if (sfxBadge) {
@@ -4196,6 +4411,12 @@ function renderFilmstripGroup(group, label) {
         const looksImage = Boolean(imageFile) || items.some((entry) => String(entry.type || "").startsWith("image/"));
         const looksAudio = Boolean(audioFile) || items.some((entry) => String(entry.type || "").startsWith("audio/"));
         if (!hasFile) return;
+        if (looksImage && frameAttachmentEditingLocked()) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = "none";
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
         event.dataTransfer.dropEffect = "copy";
@@ -4216,6 +4437,10 @@ function renderFilmstripGroup(group, label) {
       item.classList.remove("audioDragOver", "imageDragOver");
       const imageFile = imageFileFromList(event.dataTransfer?.files);
       if (imageFile) {
+        if (frameAttachmentEditingLocked()) {
+          status(t("frameAttachmentTrailLocked"));
+          return;
+        }
         await bindFrameImageAttachmentFile(imageFile, index, group);
         return;
       }
@@ -4233,6 +4458,23 @@ function renderFilmstripGroup(group, label) {
         adjustFrameDurationMs(index, Number(button.dataset.delta || 0));
       });
     });
+    const copyButton = item.querySelector('[data-action="duplicate-frame"]');
+    if (copyButton && canDuplicate) {
+      const duplicate = async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        try {
+          await duplicateFrameAfter(index, group);
+        } catch (error) {
+          status(`复制帧失败：${error.message}`);
+        }
+      };
+      copyButton.addEventListener("click", duplicate);
+      copyButton.addEventListener("keydown", async (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        await duplicate(event);
+      });
+    }
     item.addEventListener("click", async (event) => {
       if (group.uiId !== currentGroup.uiId) {
         const previousGroup = currentGroup;
@@ -4830,17 +5072,7 @@ function attackTrailAnimationElapsedRaw(group = currentGroup) {
 
 function attackTrailPlaybackSample(group = currentGroup) {
   const rawTime = attackTrailAnimationElapsedRaw(group);
-  if (!playing || !group) {
-    return { time: rawTime, sampleIndex: 0, subdivisions: 1, step: 0 };
-  }
-  const frameStart = attackTrailFrameArrival(selectedFrame, 0, group);
-  const frameDuration = frameDurationMs(selectedFrame, group) / 1000;
-  return window.XsxbTimingModes.frameSynchronousEffectSample(
-    rawTime,
-    frameStart,
-    frameDuration,
-    1 / groupPlaybackFps(group),
-  );
+  return { time: rawTime, sampleIndex: 0, subdivisions: 1, step: 0 };
 }
 
 function attackTrailAnimationElapsed(group = currentGroup) {
@@ -4894,13 +5126,7 @@ function drawSequenceOverlapFrame(index, alpha, group = currentGroup, groupImage
 function playbackNeedsContinuousDraw() {
   if (!playing || !currentGroup) return false;
   if (sequenceOverlapEnabled(currentGroup)) return true;
-  if (attackTrailEditor?.isContinuous()) {
-    const sampleToken = attackTrailPlaybackSampleToken();
-    if (sampleToken !== lastAttackTrailPlaybackSampleToken) {
-      lastAttackTrailPlaybackSampleToken = sampleToken;
-      return true;
-    }
-  }
+  if (attackTrailEditor?.isContinuous()) return true;
   return attachedLayerGroups(currentGroup).some((group) => group.independentPlayback === true || sequenceOverlapEnabled(group));
 }
 
@@ -5044,6 +5270,7 @@ function scaleAttachmentAxis(value, fallback, factor) {
 }
 
 function applySelectedAttachmentWheel(event) {
+  if (frameAttachmentEditingLocked()) return false;
   const mode = attachmentWheelMode();
   if (!mode) return false;
   const attachment = hitTestDirectManipulationAttachment(event);
@@ -5087,7 +5314,7 @@ function drawFrameImageAttachment(attachment, index, alpha, group = currentGroup
   if (rect.flipH) ctx.scale(-1, 1);
   ctx.drawImage(rect.img, -rect.drawWidth / 2, -rect.drawHeight / 2, rect.drawWidth, rect.drawHeight);
   if (selectedAttachmentId === attachment.id) {
-    ctx.strokeStyle = "rgba(255, 196, 74, .95)";
+    ctx.strokeStyle = frameAttachmentEditingLocked() ? "rgba(150, 160, 170, .9)" : "rgba(255, 196, 74, .95)";
     ctx.lineWidth = 2;
     ctx.strokeRect(-rect.drawWidth / 2, -rect.drawHeight / 2, rect.drawWidth, rect.drawHeight);
   }
@@ -5168,11 +5395,9 @@ function liteFrameAtTime(timeSeconds, group = currentGroup) {
   return lastPlayable;
 }
 
-function liteExportTimeline(maxPhaseDurationMs = 80) {
+function liteExportTimeline() {
   if (!currentGroup?.frames?.length) return [];
-  const phaseDurationMs = Math.min(1000, Math.max(1, Number(maxPhaseDurationMs) || 80));
   const playableFrames = [];
-  let animationDurationMs = 0;
   for (let frameIndex = 0; frameIndex < currentGroup.frames.length; frameIndex += 1) {
     if (framePlayback(frameIndex, currentGroup).disabled) continue;
     const durationMs = frameDurationMs(frameIndex, currentGroup);
@@ -5180,30 +5405,13 @@ function liteExportTimeline(maxPhaseDurationMs = 80) {
       frameIndex,
       durationMs,
     });
-    animationDurationMs += durationMs;
   }
-  const animationDuration = animationDurationMs / 1000;
-  const trailRanges = attackTrailEditor?.exportTimeRanges() || [];
-  let elapsedMs = 0;
-  for (const frame of playableFrames) {
-    const frameStart = elapsedMs / 1000;
-    const frameEnd = (elapsedMs + frame.durationMs) / 1000;
-    frame.trailActive = trailRanges.some((range) => range.end > frameStart + 0.000001
-      && range.start < frameEnd - 0.000001);
-    elapsedMs += frame.durationMs;
-  }
-  const exportDuration = attackTrailEditor?.exportEndTime(animationDuration) || animationDuration;
-  return window.XsxbTimingModes.liteExportSamples(
-    playableFrames,
-    phaseDurationMs,
-    exportDuration * 1000,
-    attackTrailEditor?.hasExportTrail() === true,
-  );
+  return window.XsxbTimingModes.bakedSequenceSamples(playableFrames);
 }
 
-function liteExportAudio(maxPhaseDurationMs = 80, samples = null) {
+function liteExportAudio(samples = null) {
   if (config?.projectKind !== "frame_lite" || !currentGroup?.frames?.length) return { assets: [], events: [] };
-  const timeline = Array.isArray(samples) ? samples : liteExportTimeline(maxPhaseDurationMs);
+  const timeline = Array.isArray(samples) ? samples : liteExportTimeline();
   const assets = new Map();
   const events = [];
   let elapsedMs = 0;
@@ -5244,7 +5452,9 @@ function liteExportAudio(maxPhaseDurationMs = 80, samples = null) {
 }
 
 async function renderLiteExportFrame(sample, options = {}) {
-  if (config?.projectKind !== "frame_lite" || !currentGroup?.frames?.length) throw new Error("Lite export requires an active sequence.");
+  if ((config?.projectKind !== "frame_lite" && options.allowProjectExport !== true) || !currentGroup?.frames?.length) {
+    throw new Error("Frame export requires an active sequence.");
+  }
   const width = Math.min(8192, Math.max(1, Math.round(Number(options.width || 1024))));
   const height = Math.min(8192, Math.max(1, Math.round(Number(options.height || 1024))));
   const originPixelX = Number.isFinite(Number(options.originPixelX))
@@ -5264,19 +5474,37 @@ async function renderLiteExportFrame(sample, options = {}) {
     selectedFrames: new Set(selectedFrames),
     playing,
     trailEnabled: attackTrailEditor?.enabled,
+    trailWorkspaceMode: attackTrailEditor?.workspaceMode,
+    trailGuidesVisible: attackTrailEditor?.guidesVisible,
+    trailPreviewing: attackTrailEditor?.previewing,
+    trailStaticEditPreview: attackTrailEditor?.staticEditPreview,
   };
   try {
     playing = false;
     selectedFrame = frameIndex;
     selectedFrames = new Set([frameIndex]);
     liteExportTime = Math.max(0, Number(sample?.time || 0));
-    if (attackTrailEditor) attackTrailEditor.enabled = true;
+    if (attackTrailEditor) {
+      attackTrailEditor.enabled = true;
+      if (config?.projectKind === "frame_lite" || options.bakedComposite === true) {
+        attackTrailEditor.workspaceMode = "";
+        attackTrailEditor.guidesVisible = false;
+        attackTrailEditor.previewing = false;
+        attackTrailEditor.staticEditPreview = false;
+      }
+    }
     els.stage.width = width;
     els.stage.height = height;
-    view = { zoom: 1 / Math.max(0.0001, devicePixelRatio), x: originPixelX, y: originPixelY };
+    const exportSceneScale = options.excludeSceneScale === true ? activeSceneScale() : 1;
+    view = {
+      zoom: 1 / Math.max(0.0001, devicePixelRatio * exportSceneScale),
+      x: originPixelX,
+      y: originPixelY,
+    };
     ctx.clearRect(0, 0, width, height);
+    const mainFrameRect = currentFrameRect(frameIndex);
     drawLiteExportComposite(frameIndex);
-    if (options.measureOnly === true) {
+    if (options.measureOnly === true || options.crop === true) {
       const pixels = new Uint32Array(ctx.getImageData(0, 0, width, height).data.buffer);
       let left = width;
       let top = height;
@@ -5291,9 +5519,38 @@ async function renderLiteExportFrame(sample, options = {}) {
           if (y > bottom) bottom = y;
         }
       }
-      return right >= left && bottom >= top
-        ? { left, top, right, bottom, width: right - left + 1, height: bottom - top + 1 }
-        : null;
+      if (right < left || bottom < top) return null;
+      const bounds = { left, top, right, bottom, width: right - left + 1, height: bottom - top + 1 };
+      if (options.measureOnly === true) return bounds;
+      const padding = Math.min(64, Math.max(0, Math.round(Number(options.padding ?? 4))));
+      left = Math.max(0, left - padding);
+      top = Math.max(0, top - padding);
+      right = Math.min(width - 1, right + padding);
+      bottom = Math.min(height - 1, bottom + padding);
+      if (left === 0 || top === 0 || right === width - 1 || bottom === height - 1) {
+        throw new Error(`Composite frame ${frameIndex + 1} exceeds the ${width}x${height} bake canvas.`);
+      }
+      const cropWidth = right - left + 1;
+      const cropHeight = bottom - top + 1;
+      const output = document.createElement("canvas");
+      output.width = cropWidth;
+      output.height = cropHeight;
+      const outputContext = output.getContext("2d");
+      outputContext.clearRect(0, 0, cropWidth, cropHeight);
+      outputContext.drawImage(els.stage, left, top, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+      return {
+        data: output.toDataURL("image/png"),
+        width: cropWidth,
+        height: cropHeight,
+        mainAnchor: mainFrameRect ? {
+          x: mainFrameRect.originX - (left + cropWidth * 0.5),
+          y: top + cropHeight - mainFrameRect.originY,
+        } : { x: 0, y: cropHeight * 0.5 },
+        offset: {
+          x: left + cropWidth * 0.5 - originPixelX,
+          y: top + cropHeight - originPixelY,
+        },
+      };
     }
     return els.stage.toDataURL("image/png");
   } finally {
@@ -5301,7 +5558,13 @@ async function renderLiteExportFrame(sample, options = {}) {
     playing = previous.playing;
     selectedFrame = previous.selectedFrame;
     selectedFrames = previous.selectedFrames;
-    if (attackTrailEditor) attackTrailEditor.enabled = previous.trailEnabled;
+    if (attackTrailEditor) {
+      attackTrailEditor.enabled = previous.trailEnabled;
+      attackTrailEditor.workspaceMode = previous.trailWorkspaceMode;
+      attackTrailEditor.guidesVisible = previous.trailGuidesVisible;
+      attackTrailEditor.previewing = previous.trailPreviewing;
+      attackTrailEditor.staticEditPreview = previous.trailStaticEditPreview;
+    }
     els.stage.width = previous.width;
     els.stage.height = previous.height;
     view = previous.view;
@@ -5384,7 +5647,7 @@ function canvasHintLines() {
   const lines = [];
   if (selectedFrameAttachment()) {
     lines.push({
-      text: t("frameAttachmentCanvasHint"),
+      text: t(frameAttachmentEditingLocked() ? "frameAttachmentTrailLocked" : "frameAttachmentCanvasHint"),
       active: true,
     });
   }
@@ -5464,9 +5727,10 @@ function draw() {
   updateCoordHud();
 }
 
-function updateSelectedFromInputs(transform = transformFromAdjustmentInputs()) {
+function updateSelectedFromInputs(transform = transformFromAdjustmentInputs(), editedField = "") {
   const attachment = selectedFrameAttachment();
   if (attachment) {
+    if (frameAttachmentEditingLocked()) return;
     attachment.transform = normalizeAttachmentTransform(transform);
     markDirty();
     renderFilmstrip();
@@ -5474,8 +5738,20 @@ function updateSelectedFromInputs(transform = transformFromAdjustmentInputs()) {
     return;
   }
   if (!canEditFrameTransform()) return;
-  for (const frameIndex of selectedFrameIndexes()) {
-    setFrameTransform(frameIndex, transform);
+  const frameIndexes = selectedFrameIndexes();
+  const referenceTransform = editedField && frameIndexes.length > 1
+    ? frameTransform(selectedFrame, currentGroup)
+    : null;
+  for (const frameIndex of frameIndexes) {
+    const nextTransform = editedField
+      ? window.XsxbTransformSelection.applyEditedField(
+        frameTransform(frameIndex, currentGroup),
+        transform,
+        editedField,
+        referenceTransform
+      )
+      : transform;
+    setFrameTransform(frameIndex, nextTransform);
   }
   renderFilmstrip();
   draw();
@@ -5654,12 +5930,24 @@ function updateBaseFromInputs(transform = transformFromAdjustmentInputs()) {
   draw();
 }
 
-function updateAdjustmentFromInputs() {
+function adjustmentFieldForInput(input) {
+  if (input === els.baseScale) return "scale";
+  if (input === els.baseScaleX) return "scaleX";
+  if (input === els.baseScaleY) return "scaleY";
+  if (input === els.baseX) return "offsetX";
+  if (input === els.baseY) return "offsetY";
+  if (input === els.baseRotation) return "rotation";
+  return "";
+}
+
+function updateAdjustmentFromInputs(editedInput = null) {
   const transform = transformFromAdjustmentInputs();
   if (adjustmentMode === "character") {
     updateCharacterFromInputs(transform);
   } else if (adjustmentMode === "frame") {
-    updateSelectedFromInputs(transform);
+    const editedField = adjustmentFieldForInput(editedInput);
+    if (!editedField && selectedFrameCount() > 1 && !selectedFrameAttachment()) return;
+    updateSelectedFromInputs(transform, editedField);
   } else {
     updateBaseFromInputs(transform);
   }
@@ -5824,28 +6112,155 @@ function advancePlayback() {
   switchPlaybackGroup(nextGroup, firstPlayableFrame(nextGroup));
 }
 
+function unityBakeAnimationId(group) {
+  const raw = String(group?.animationId || group?.runtimeAnimation || group?.name || "animation");
+  return raw.includes("/") ? raw.slice(raw.lastIndexOf("/") + 1) : raw;
+}
+
+function unityBakedFrameIndexesForGroup(group, attachments, attackTrails) {
+  let needsBake = false;
+  const attachmentKeys = new Set((Array.isArray(attachments) ? attachments : [])
+    .map((attachment) => String(attachment?.key || attachment?.frameKey || ""))
+    .filter(Boolean));
+  for (let index = 0; index < (group?.frames?.length || 0); index += 1) {
+    if (attachmentKeys.has(frameImageAttachmentKey(index, group))) {
+      needsBake = true;
+      break;
+    }
+  }
+  const bindingKey = `${String(group?.profileId || "")}/${unityBakeAnimationId(group)}`;
+  const rawSegments = attackTrails?.bindings?.[bindingKey];
+  const segments = Array.isArray(rawSegments) ? rawSegments : rawSegments ? [rawSegments] : [];
+  for (const segment of segments) {
+    if (segment?.enabled === false || segment?.generated === false) continue;
+    for (const [rawFrame, slice] of Object.entries(segment?.frameSlices || segment?.frame_slices || {})) {
+      const frameIndex = Math.round(Number(rawFrame));
+      if (slice?.enabled !== false && Number.isInteger(frameIndex) && frameIndex >= 0 && frameIndex < (group?.frames?.length || 0)) {
+        needsBake = true;
+      }
+    }
+  }
+  return needsBake
+    ? Array.from({ length: group.frames.length }, (_, index) => index)
+    : [];
+}
+
+async function collectUnityBakedFramesForSave(attachments, attackTrails) {
+  if (config?.projectEngine !== "unity" || !currentGroup) return [];
+  const jobs = (config?.groups || [])
+    .filter((group) => group?.profileId && group?.type !== "vfx" && group?.frames?.length)
+    .map((group) => ({ group, indexes: unityBakedFrameIndexesForGroup(group, attachments, attackTrails) }))
+    .filter((job) => job.indexes.length > 0);
+  if (!jobs.length) return [];
+
+  const previous = {
+    group: currentGroup,
+    frameIndex: selectedFrame,
+    selectedFrames: [...selectedFrames],
+    selectionAnchorFrame,
+    selectedAttachmentId,
+    playing,
+    playbackPrimaryGroup,
+    playbackSecondaryGroup,
+  };
+  const bakedFrames = [];
+  const total = jobs.reduce((sum, job) => sum + job.indexes.length, 0);
+  let completed = 0;
+  try {
+    playing = false;
+    playbackPrimaryGroup = null;
+    playbackSecondaryGroup = null;
+    for (const { group, indexes } of jobs) {
+      await selectGroup(group, { frameIndex: indexes[0], preserveView: true, stopPlayback: false });
+      for (const frameIndex of indexes) {
+        completed += 1;
+        status(`正在生成 Unity 游戏帧 ${completed}/${total}…`);
+        const rendered = await renderLiteExportFrame({
+          frameIndex,
+          time: attackTrailFrameArrival(frameIndex, 0.5, group),
+        }, {
+          allowProjectExport: true,
+          bakedComposite: true,
+          excludeSceneScale: true,
+          crop: true,
+          padding: 6,
+          width: 2048,
+          height: 2048,
+          originPixelX: 1024,
+          originPixelY: 1024,
+        });
+        if (!rendered?.data) throw new Error(`${group.name} 第 ${frameIndex + 1} 帧没有可导出的画面。`);
+        bakedFrames.push({
+          profileId: String(group.profileId),
+          animationId: unityBakeAnimationId(group),
+          frameIndex,
+          data: rendered.data,
+          width: rendered.width,
+          height: rendered.height,
+          mainAnchor: rendered.mainAnchor,
+          offset: rendered.offset,
+        });
+      }
+    }
+  } finally {
+    if (previous.group) {
+      await selectGroup(previous.group, {
+        frameIndex: previous.frameIndex,
+        selectedFrames: previous.selectedFrames,
+        selectionAnchorFrame: previous.selectionAnchorFrame,
+        selectedAttachmentId: previous.selectedAttachmentId,
+        preserveView: true,
+        stopPlayback: false,
+      });
+    }
+    playing = previous.playing;
+    playbackPrimaryGroup = previous.playbackPrimaryGroup;
+    playbackSecondaryGroup = previous.playbackSecondaryGroup;
+  }
+  return bakedFrames;
+}
+
+async function syncUnityBakedFramesNow() {
+  const attachments = collectFrameImageAttachmentsForSave();
+  const trails = attackTrailEditor?.serialize();
+  const bakedFrames = await collectUnityBakedFramesForSave(attachments, trails);
+  const response = await fetch("/api/unity-baked-frames", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: activeProjectId(), bakedFrames }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || response.statusText);
+  return { bakedFrames, unitySync: payload.unitySync };
+}
+
 async function save() {
   if (saveInFlight) return;
   saveInFlight = true;
   updateSaveState();
-  updateAdjustmentFromInputs();
-  pruneNoopFrameOverrides();
-  await ensureCollisionBoxOverridesForSave();
-  const frameAudioBindingsForSave = config?.projectKind === "codex_pets" ? [] : await collectFrameAudioBindingsForSave();
-  const codexPetExportsForSave = await collectCodexPetExportsForSave();
-  const hadReadOnlyPetEdits = config?.projectKind === "codex_pets"
-    && [...dirtyPetProfileIds].some((profileId) => !codexPetProfile(profileId)?.pet?.writable);
   try {
+    updateAdjustmentFromInputs();
+    pruneNoopFrameOverrides();
+    await ensureCollisionBoxOverridesForSave();
+    const frameAudioBindingsForSave = config?.projectKind === "codex_pets" ? [] : await collectFrameAudioBindingsForSave();
+    const frameImageAttachmentsForSave = collectFrameImageAttachmentsForSave();
+    const attackTrailsForSave = config?.projectKind === "codex_pets" ? undefined : attackTrailEditor?.serialize();
+    const unityBakedFramesForSave = await collectUnityBakedFramesForSave(frameImageAttachmentsForSave, attackTrailsForSave);
+    const codexPetExportsForSave = await collectCodexPetExportsForSave();
+    const hadReadOnlyPetEdits = config?.projectKind === "codex_pets"
+      && [...dirtyPetProfileIds].some((profileId) => !codexPetProfile(profileId)?.pet?.writable);
     const res = await fetch("/api/save", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         projectId: activeProjectId(),
+        configRevision: config?.configRevision || "",
         values: collectTuningValues(),
         scene_settings: collectSceneSettings(),
         frame_audio_bindings: frameAudioBindingsForSave,
-        frame_image_attachments: collectFrameImageAttachmentsForSave(),
-        attack_trails: config?.projectKind === "codex_pets" ? undefined : attackTrailEditor?.serialize(),
+        frame_image_attachments: frameImageAttachmentsForSave,
+        attack_trails: attackTrailsForSave,
+        unity_baked_frames: config?.projectEngine === "unity" ? unityBakedFramesForSave : undefined,
         frame_visual_overrides: frameOverrides,
         attack_vfx_frame_overrides: vfxFrameOverrides,
         frame_playback_overrides: framePlaybackOverrides,
@@ -5878,8 +6293,15 @@ async function save() {
         },
       }),
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) {
+      const errorPayload = await res.json().catch(() => ({}));
+      if (res.status === 409 && errorPayload.code === "stale_config") {
+        throw new Error(t("staleSaveBlocked"));
+      }
+      throw new Error(errorPayload.error || res.statusText);
+    }
     const result = await res.json().catch(() => ({}));
+    if (result.configRevision) config.configRevision = result.configRevision;
     if (Array.isArray(result.warnings)) config.warnings = result.warnings;
     const exportedCount = Array.isArray(result.codexPetExports) ? result.codexPetExports.length : 0;
     if (exportedCount) await loadConfig();
@@ -5889,6 +6311,13 @@ async function save() {
       ? t("warnings", { warnings: result.warnings.join("\n") })
       : "";
     const saveMessages = [];
+    if (result.engine === "godot") {
+      if (result.godotSync?.ok === true) saveMessages.push(t("godotSynced"));
+      else saveMessages.push(t("godotSyncFailed", { message: result.godotSync?.reason || "Unknown error" }));
+    }
+    if (result.engine === "unity" && result.unitySync?.bakedFrameCount >= 0) {
+      saveMessages.push(`已生成 ${result.unitySync.bakedFrameCount} 张 Unity 游戏帧。`);
+    }
     if (exportedCount) saveMessages.push(t("codexPetExported", { count: exportedCount }));
     if (hadReadOnlyPetEdits) saveMessages.push(t("codexPetBuiltInSaved"));
     if (warningText.trim()) saveMessages.push(warningText.trim());
@@ -6191,7 +6620,10 @@ async function uploadFrameAttachmentImage(file, id) {
 }
 
 async function bindFrameImageAttachmentFile(file, index = selectedFrame, group = currentGroup) {
-  if (!file || !group) return false;
+  if (!file || !group || frameAttachmentEditingLocked()) {
+    if (frameAttachmentEditingLocked()) status(t("frameAttachmentTrailLocked"));
+    return false;
+  }
   const frameIndex = clampFrameIndex(index, group);
   const id = newLocalId("layer");
   try {
@@ -6224,6 +6656,10 @@ async function bindFrameImageAttachmentFile(file, index = selectedFrame, group =
 }
 
 function removeFrameImageAttachment(attachmentId) {
+  if (frameAttachmentEditingLocked()) {
+    status(t("frameAttachmentTrailLocked"));
+    return;
+  }
   const attachment = frameImageAttachments.find((entry) => entry.id === attachmentId);
   if (!attachment || !window.confirm(t("frameAttachmentDeleteConfirm"))) return;
   pushUndo("remove attached image");
@@ -6292,7 +6728,7 @@ async function removeFrameAudioFromCard(index = selectedFrame, group = currentGr
   if (!window.confirm(t("frameSfxDeleteConfirm"))) return false;
   await clearFrameAudioBinding(frameIndex, group);
   markDirty();
-  await syncFrameAudioBindingsToGame().catch((error) => {
+  await syncFrameAudioBindingsToGame({ allowEmpty: true }).catch((error) => {
     status(t("frameSfxDeleteFailed", { message: error.message }));
   });
   syncFrameAudioInputs();
@@ -6315,6 +6751,7 @@ function isNumberInputTarget(event) {
 }
 
 function trackAttachmentTransformKey(event, pressed) {
+  if (frameAttachmentEditingLocked()) return false;
   const key = String(event.key || "").toLowerCase();
   if (key !== "r" && key !== "z") return false;
   if (pressed && isTypingTarget(event)) return false;
@@ -6407,7 +6844,7 @@ for (const [mode, input] of [
 }
 els.baseScale.addEventListener("input", () => {
   syncBaseAxisScaleToUniform();
-  updateAdjustmentFromInputs();
+  updateAdjustmentFromInputs(els.baseScale);
 });
 
 document.querySelectorAll(".numberStep").forEach((button) => {
@@ -6475,7 +6912,7 @@ for (const input of adjustmentNumberInputs()) {
   });
   input.addEventListener("paste", (event) => event.preventDefault());
   input.addEventListener("drop", (event) => event.preventDefault());
-  if (input !== els.baseScale) input.addEventListener("input", updateAdjustmentFromInputs);
+  if (input !== els.baseScale) input.addEventListener("input", () => updateAdjustmentFromInputs(input));
 }
 
 els.showBoxes.addEventListener("change", () => {
@@ -6602,6 +7039,7 @@ if (els.clearGroup) {
 
 if (els.playPause) {
   els.playPause.addEventListener("click", () => {
+    attackTrailEditor?.stopPreview?.();
     clearSelectedAttachment();
     playing = !playing;
     lastAttackTrailPlaybackSampleToken = "";
@@ -6873,6 +7311,12 @@ window.addEventListener("keydown", (event) => {
     save().catch((error) => status(t("saveFailed", { message: error.message })));
     return;
   }
+  if (command && ["c", "v"].includes(event.key.toLowerCase()) && frameAttachmentEditingLocked()) {
+    event.preventDefault();
+    event.stopPropagation();
+    status(t("frameAttachmentTrailLocked"));
+    return;
+  }
   if (command && event.key.toLowerCase() === "c" && copyFrameImageAttachments()) {
     event.preventDefault();
     event.stopPropagation();
@@ -6937,7 +7381,9 @@ attackTrailEditor = new window.AttackTrailEditor({
   assetUrl,
   loadTexture: loadImageCached,
   frameArrival: (frameIndex, framePhase) => attackTrailFrameArrival(frameIndex, framePhase),
+  frameDurationMs: (frameIndex) => frameDurationMs(frameIndex),
   animationElapsed: () => attackTrailAnimationElapsed(),
+  selectedGuidePreviewActive: () => !playing && !Number.isFinite(liteExportTime),
   animationTiming: () => attackTrailAnimationTiming(),
   localToScreen: (pointValue) => attackTrailLocalToScreen(pointValue),
   screenToLocal: (pointValue) => attackTrailScreenToLocal(pointValue),
@@ -6946,6 +7392,13 @@ attackTrailEditor = new window.AttackTrailEditor({
   markDirty,
   pushUndo,
   draw,
+  stopPlayback: () => {
+    playing = false;
+    playbackPrimaryGroup = null;
+    playbackSecondaryGroup = null;
+    if (els.playPause) els.playPause.textContent = t("play");
+  },
+  attachmentEditingLockChanged: (locked) => syncFrameAttachmentEditingLock(locked),
   status: (message) => status(message),
 });
 window.XsxbFrameTunerLite = {
@@ -6958,8 +7411,8 @@ window.XsxbFrameTunerLite = {
     frameCount: currentGroup?.frames?.length || 0,
     settings: structuredClone(config?.liteSettings || {}),
   }),
-  timeline: (phaseDurationMs) => liteExportTimeline(phaseDurationMs),
-  audio: (phaseDurationMs, samples) => liteExportAudio(phaseDurationMs, samples),
+  timeline: () => liteExportTimeline(),
+  audio: (samples) => liteExportAudio(samples),
   renderFrame: (sample, options) => renderLiteExportFrame(sample, options),
   measureFrame: (sample, options) => renderLiteExportFrame(sample, { ...options, measureOnly: true }),
   exportGroups: () => (config?.groups || [])
@@ -6976,6 +7429,13 @@ window.XsxbFrameTunerLite = {
     await selectGroup(group);
     return window.XsxbFrameTunerLite.current();
   },
+};
+window.XsxbFrameTunerUnity = {
+  collectBakedFrames: async () => collectUnityBakedFramesForSave(
+    collectFrameImageAttachmentsForSave(),
+    attackTrailEditor?.serialize()
+  ),
+  syncBakedFrames: () => syncUnityBakedFramesNow(),
 };
 requestAnimationFrame(animate);
 applyUiTheme();

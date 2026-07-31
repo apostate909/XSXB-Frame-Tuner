@@ -267,9 +267,39 @@ p, #hint, .status { color: var(--muted); font-size: 13px; }
 
 .characterGroupGrid {
   display: grid;
-  grid-template-columns: minmax(0, .84fr) minmax(0, 1.16fr);
+  grid-template-columns: minmax(0, .72fr) minmax(0, 1.28fr);
   gap: 10px;
   margin: 8px 0 10px;
+}
+
+.fieldLabelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.groupFamilyBadge {
+  flex: 0 1 auto;
+  max-width: 72%;
+  overflow: hidden;
+  padding: 2px 7px;
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  background: var(--accent-2);
+  box-shadow: 2px 2px 0 var(--line);
+  color: var(--on-bright);
+  font-family: var(--data-font);
+  font-size: 10px;
+  font-weight: 950;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.groupFamilyBadge[hidden] {
+  display: none;
 }
 
 .characterGroupGrid .field,
@@ -536,6 +566,20 @@ select:focus, input:focus, button:focus {
   outline-offset: 2px;
 }
 
+#groupSelect optgroup,
+#chainGroupSelect optgroup {
+  background: var(--surface-2);
+  color: var(--control-ink);
+  font-weight: 950;
+}
+
+#groupSelect option,
+#chainGroupSelect option {
+  background: var(--control-bg);
+  color: var(--control-ink);
+  font-weight: 800;
+}
+
 button {
   cursor: pointer;
   background: var(--control-bg);
@@ -615,6 +659,23 @@ button:disabled {
 .projectActions {
   grid-template-columns: 1fr;
   margin: -4px 0 12px;
+}
+
+.projectBinding {
+  margin: -4px 0 10px;
+  padding: 6px 8px;
+  border: 2px solid var(--line-soft);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.unityProject .projectBinding {
+  border-color: var(--accent-2);
 }
 
 .projectActions.hasPetAction {
@@ -870,10 +931,35 @@ body.codexPetsProject [data-panel="boxes"] {
 
 .thumbDuration {
   display: grid;
-  grid-template-columns: 26px 1fr 26px;
+  grid-template-columns: 26px minmax(24px, 1fr) 26px 26px;
   align-items: center;
   gap: 4px;
   padding: 2px 6px 6px;
+}
+
+.frameCopyButton {
+  align-items: center;
+  background: var(--control-bg);
+  border: 2px solid var(--line);
+  border-radius: 5px;
+  color: var(--control-ink);
+  cursor: pointer;
+  display: inline-flex;
+  font: 950 15px/1 var(--data-font);
+  height: 22px;
+  justify-content: center;
+  width: 26px;
+}
+.frameCopyButton:hover,
+.frameCopyButton:focus-visible {
+  background: var(--accent);
+  color: var(--on-bright);
+  outline: 0;
+}
+.frameCopyButton.disabled {
+  cursor: default;
+  opacity: .35;
+  pointer-events: none;
 }
 
 .thumbDuration b {
@@ -948,6 +1034,31 @@ body.codexPetsProject [data-panel="boxes"] {
   box-shadow: 5px 5px 0 var(--accent);
 }
 
+.attachmentThumb.lockedAttachment {
+  cursor: not-allowed;
+  filter: saturate(.45);
+  opacity: .68;
+}
+
+.attachmentThumb.lockedAttachment .attachmentActions { display: none; }
+
+.attachmentLockBadge {
+  align-items: center;
+  background: var(--control-bg);
+  border: 2px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  display: inline-flex;
+  font: 900 11px/1 var(--data-font);
+  height: 22px;
+  justify-content: center;
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 22px;
+  z-index: 4;
+}
+
 .attachmentThumb img {
   height: 48px;
   padding: 5px 24px 2px 5px;
@@ -999,6 +1110,29 @@ body.codexPetsProject [data-panel="boxes"] {
   margin-top: 10px;
   min-width: 0;
 }
+.attackTrailModeChoices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.attackTrailModeChoices[hidden],
+.attackTrailBody[hidden],
+.attackTrailDrawControls[hidden],
+.attackTrailInsertControls[hidden] { display: none; }
+.attackTrailModeChoices button.active {
+  background: var(--accent-2);
+  color: var(--on-bright);
+}
+.attackTrailDrawControls {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.attackTrailInsertControls {
+  display: grid;
+  min-width: 0;
+}
 .attackTrailBody *, .attackTrailBody *::before, .attackTrailBody *::after { box-sizing: border-box; }
 .attackTrailRow { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .attackTrailRow > * { min-width: 0; }
@@ -1039,7 +1173,7 @@ body.codexPetsProject [data-panel="boxes"] {
 .trailPresetActions button { width: 100%; }
 .trailStickActionRow {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(32px, .42fr) minmax(32px, .42fr) repeat(4, minmax(0, 1fr));
   gap: 6px;
 }
 .trailStickActionRow button {
@@ -1050,6 +1184,21 @@ body.codexPetsProject [data-panel="boxes"] {
   letter-spacing: -.02em;
   white-space: nowrap;
 }
+.trailStickActionRow #attackTrailAddStick,
+.trailStickActionRow #attackTrailDeleteStick {
+  font-size: 19px;
+  line-height: 1;
+}
+.trailFrameSliceRow {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent-2) 16%, var(--panel));
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  padding: 7px;
+}
+.trailFrameSliceRow #attackTrailFrameToggle { width: 100%; }
+.trailFrameSliceRow #attackTrailFrameToggle.active { background: var(--accent-2); color: var(--on-bright); }
+.trailFrameSliceRow span { color: var(--muted); font-size: 12px; line-height: 1.35; }
 .trailLayerToggle {
   min-width: 0;
   padding-inline: 9px;
@@ -1092,6 +1241,67 @@ body.codexPetsProject [data-panel="boxes"] {
   cursor: not-allowed;
   filter: grayscale(.55);
   opacity: .48;
+}
+.trailMaterialSettings {
+  border: 1px solid color-mix(in srgb, var(--accent-2) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent-2) 8%, var(--panel));
+}
+.trailMaterialSettings > summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+  padding: 9px 10px;
+  user-select: none;
+}
+.trailMaterialSettings[open] > summary {
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+.trailMaterialLayers {
+  display: grid;
+  gap: 9px;
+  padding: 10px 10px 8px;
+}
+.trailMaterialLayer {
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--line) 64%, transparent);
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+}
+.trailMaterialLayer > .toggle {
+  margin: 0;
+}
+.trailMaterialLayerPreview {
+  display: block;
+  width: 100%;
+  height: 58px;
+  object-fit: contain;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background: #000;
+}
+.trailMaterialLayerGrid {
+  align-items: end;
+}
+.trailMaterialFinishingGrid {
+  align-items: end;
+}
+.trailMaterialFinishingGrid > :last-child {
+  grid-column: 1 / -1;
+}
+.trailMaterialLayer input:disabled,
+.trailMaterialLayer select:disabled,
+.trailMaterialLayer button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(.55);
+  opacity: .48;
+}
+.trailMaterialHelp {
+  margin: 0;
+  padding: 0 10px 10px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
 }
 .trailGradientEditor {
   display: grid;
@@ -1175,12 +1385,17 @@ body.codexPetsProject [data-panel="boxes"] {
 }
 .trailMotionSettings[open] > summary { color: var(--ink); border-bottom: 1px solid var(--line); }
 .trailMotionGrid { padding: 10px; }
-.trailSmoothnessHelp, .trailTransparencyHelp, .trailChaseHelp {
+.trailSmoothnessHelp, .trailTransparencyHelp {
   grid-column: 1 / -1;
   color: var(--muted);
   font-size: 11px;
   line-height: 1.45;
   margin: 0;
+}
+.trailPreviewButton {
+  min-width: 76px;
+  width: auto;
+  padding-inline: 10px;
 }
 .trailTextureBox, .trailStickBox {
   display: grid;
@@ -1189,6 +1404,15 @@ body.codexPetsProject [data-panel="boxes"] {
   border: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel) 82%, transparent);
   min-width: 0;
+}
+.trailTextureActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px;
+  gap: 7px;
+}
+.trailTextureActions #attackTrailInvertTexture.active {
+  background: var(--accent-2);
+  color: var(--on-bright);
 }
 .trailTextureBox button, .trailStickBox button, .trailStickBox select { min-width: 0; width: 100%; }
 .trailLayerLegend {

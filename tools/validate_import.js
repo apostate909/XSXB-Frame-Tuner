@@ -210,12 +210,15 @@ function validateImport(args) {
       attackTrailSegments += 1;
       attackTrailSticks += segment.sticks.length;
       if (!standaloneAnimations.has(key)) errors.push(`${key}/${segment.id}: attack trail animation binding is missing.`);
-      if (segment.sticks.length < 2) errors.push(`${key}/${segment.id}: attack trail requires at least two sticks.`);
-      for (let stickIndex = 1; stickIndex < segment.sticks.length; stickIndex += 1) {
-        const previous = segment.sticks[stickIndex - 1];
-        const current = segment.sticks[stickIndex];
+      if (segment.presetOnly !== true && segment.sticks.length < 2) {
+        errors.push(`${key}/${segment.id}: attack trail requires at least two sticks.`);
+      }
+      const timedHeadSticks = segment.sticks.filter((stick) => stick.headFrame !== false);
+      for (let stickIndex = 1; stickIndex < timedHeadSticks.length; stickIndex += 1) {
+        const previous = timedHeadSticks[stickIndex - 1];
+        const current = timedHeadSticks[stickIndex];
         if (current.frame < previous.frame || (current.frame === previous.frame && current.framePhase < previous.framePhase)) {
-          errors.push(`${key}/${segment.id}: attack trail stick times are not ordered at stick ${stickIndex + 1}.`);
+          errors.push(`${key}/${segment.id}: attack trail head-frame times are not ordered at head stick ${stickIndex + 1}.`);
         }
       }
       const gameSegment = gameSegments[index];

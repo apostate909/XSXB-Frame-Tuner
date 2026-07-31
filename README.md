@@ -17,7 +17,7 @@ XSXB Frame Tuner 是一个给 Godot 帧动画角色和 Codex 宠物用的本地�
 - 碰撞框调节：支持 hurtbox、hitbox、collisionbox，在画布中直接拖动和变形。
 - 播放调节：支持组级时长、单帧时长、禁用帧，以及调参后的实际播放节奏。
 - 帧音效和图片挂件：可以给指定帧绑定 SFX 或附加图片，保存后同步到 Godot 项目。
-- 攻击拖尾模式：用逐帧棍子绘制连续运动路径，支持多段拖尾、前后图层穿插、自由方向手柄、头部弧度、单色/渐变/原色纹理以及与真实帧时间同步的尾部追赶。
+- 攻击拖尾模式：先用棍子绘制与动作绑定的完整轨迹，再给需要的人物帧插入可直接拖动首尾的静态拖尾。
 - Godot 同步：导入 PNG 序列或 SpriteFrames 后，会生成/刷新 `res://xsxb_frame_tuner/` 下的运行时数据和基础 runtime。
 - 完整验证：可检查每帧框体、游戏本地数据、SFX、附加帧、场景系数、框体缩放和实际 gameplay 接线。
 
@@ -25,14 +25,17 @@ XSXB Frame Tuner 是一个给 Godot 帧动画角色和 Codex 宠物用的本地�
 
 ## 攻击拖尾模式
 
-选择角色和动作后开启“攻击拖尾模式”，即可在当前动画帧上添加一根或多根棍子。棍子的两个端点决定拖尾宽度，中点用于整体移动，方向手柄控制贴图头部穿过棍子后的运动方向和曲率。棍子按时间顺序组成连续路径，同一帧可以放置多根棍子补足被抽掉的中间姿态。
+选择角色和动作后开启“攻击拖尾模式”，再选择“拖尾绘制”或“拖尾插入”。绘制模式编辑与整组动作绑定的完整轨迹，不受当前人物帧限制；插入模式只决定当前人物帧显示轨迹的哪一段。
 
+- “拖尾绘制”显示完整参数区。棍子操作栏使用 `＋`、`－`、前后图层、翻面和平滑轨迹；进入时默认显示完整拖尾，点击任意棍子会预览头部到达该棍的位置。
+- 画布播放键右侧的“拖尾预览”使用固定 1000ms 总时长和 0.5 尾/头速度比，只用于检查绘制轨迹，不写入正式结果。
+- “拖尾插入”只显示“本帧加入拖尾”。加入后直接沿轨迹拖动“尾”和“头”，该帧保存的首尾位置就是正式播放结果。
+- 画布右上角“棍”控制绘制手柄，“轨”控制轨迹虚线；隐藏虚线不会影响拖尾本身。
 - 每根棍子都可独立切换“角色前方/角色后方”，因此一段拖尾可以在运动途中穿过角色图层。
-- 每个动作可以保存多段互不相关的拖尾；纹理、颜色、渐变节点、头部弧度、透明渐隐、收拢时间和细腻度都可以重新编辑。
-- 拖尾时间复用动画的 FPS、单帧 duration 和 disabled frame；修改帧时间后不需要重画路径。
-- 默认附带 `dynamic_trail_luma.png` 预设。点击拖尾栏的“保存”可将当前纹理、单色/渐变配色、头部弧度和动态参数另存为命名预设；名称留空时自动编号，原预设不会被覆盖，棍子路径也不会复制。
+- 每个动作可以保存多段互不相关的拖尾；纹理可一键反色，颜色、渐变节点、头部弧度、透明渐隐、尾端采样点和细腻度都可以重新编辑。
+- 默认附带 `dynamic_trail_luma.png` 预设。点击拖尾栏的“保存”可将当前纹理、单色/渐变配色、头部弧度和拖尾参数另存为命名预设；名称留空时自动编号，原预设不会被覆盖，棍子路径也不会复制。
 - 单色和渐变模式保留原贴图的灰度笔刷细节；原色模式要求带有效 Alpha 的 RGBA PNG。
-- 保存时会写入独立攻击拖尾数据、复制稳定纹理并同步 Godot 连续网格运行时。拖尾路径只由棍子定义，不继承单帧 Sprite 的位移或缩放。
+- 保存时会保留可编辑轨迹和逐帧首尾位置，并同步 Godot 运行时；游戏中按人物帧播放对应拖尾层，不再依赖一套额外的追赶计时动画。
 - “拖尾细腻度”默认值为 20，适合作为大多数帧动画的质量/性能平衡点；数值越高，弯曲更细但网格更新成本也更高。
 
 [![攻击拖尾编辑演示](docs/media/attack-trail-editor-demo-preview.gif)](docs/media/attack-trail-editor-demo.mp4)
@@ -47,6 +50,32 @@ README 会直接播放上方的轻量动态预览；点击动画可打开完整 
 - `start_xsxb_frame_tuner_lite.bat`：启动 Lite 版并打开 `http://127.0.0.1:5180`。
 
 两个入口会先关闭本仓库已运行的另一种 Tuner 模式，因此正式版和 Lite 不会在后台重复占用服务。Windows 快捷方式可以直接指向对应 BAT，并复用 `tools/animation_tuner/assets/xsxb-frame-tuner.ico` 作为图标。
+
+## Unity runtime integration
+
+Frame Tuner project bindings support `godot`, `unity`, `frame_lite`, and `codex_pets`. A Unity binding is isolated by its exact project root while it can deliberately share the same engine-neutral manifest and tuning data with the original Godot binding during migration.
+
+Saving a Unity project copies all runtime assets into stable Unity-owned paths:
+
+```text
+Assets/XSXBFrameTuner/Frames/<project_id>/
+Assets/XSXBFrameTuner/Audio/<project_id>/
+Assets/XSXBFrameTuner/Attachments/<project_id>/
+Assets/XSXBFrameTuner/AttackTrails/<project_id>/
+Assets/XSXBFrameTuner/RuntimeData/<project_id>/
+Assets/XSXBFrameTuner/Runtime/
+```
+
+`xsxb_runtime_data.json` is a derived Unity adapter over the existing authoritative `animation_manifest.json`, `animation_tuning.json`, frame SFX, attachments, and attack-trail JSON. It resolves real per-frame durations, disabled frames, transforms, facing, boxes, and stable Unity asset paths. `XsxbRuntimeImporter` automatically creates `xsxb_runtime_data.asset` after script reload and can also be run from **Tools > XSXB > Rebuild Runtime Databases**.
+
+Attach `XsxbFramePlayer` to a Unity actor and assign the generated database. Replaying the same looping animation is idempotent; one-shot actions use `Play(animationId, false, true)` or `RestartAnimation()`. Gameplay can query `GetAnimationDurationSeconds()`, current hit/hurt/collision boxes, and the animation-finished event. Attack-trail data and timing are exposed through `IXsxbAttackTrailConsumer`; a project-specific Unity mesh/shader consumer is still required for final trail rendering.
+
+Validation commands:
+
+```powershell
+npm run validate:unity -- --project <unity_project_id>
+npm run smoke:unity
+```
 
 ## Frame Tuner Lite
 
@@ -77,7 +106,7 @@ npm run start:lite
 
 Windows 下也可以直接双击仓库根目录的 `start_xsxb_frame_tuner_lite.bat`。
 
-导入阶段不要求用户预先决定统一画布。先在页面里校准当前角色的所有动作、图层、逐帧音效和拖尾；“透明序列导出”会扫描该角色全部主动作组的实际可见像素范围，加入可调透明边距，再自动得到一个不会裁切且尽量紧凑的全角色统一画布。所有动作共享这个尺寸和同一个角色原点，切换动作时不会跳位。没有拖尾覆盖的有效 Sprite 帧始终一对一导出；只有从拖尾第一根棍子开始到尾部追赶完成之间覆盖的较长帧，才按“拖尾相位最长时长（ms）”拆分为 `ceil(单帧时长 / 相位最长时长)` 个等时长样本。同帧有多少根棍子都不会改变样本数量，棍子只负责塑造拖尾头部经过的空间路径。把音频文件拖到帧卡即可绑定并预览，点击帧卡上的喇叭可以删除。点击任一导出按钮都会先打开系统文件夹选择器，不会写入固定的 Lite 内部路径。“导出 PNG 序列”为当前角色的每个主动作分别写逐帧透明 PNG，并用 `export.json` 作为唯一描述文件；“导出 Sheet + JSON”为每个主动作只写 `spritesheet.png` 和可被 Lite 重新导入的 `spritesheet.json`，不再生成重复的 `export.json`。Sheet 的帧时长、源帧映射和音效都以 `spritesheet.json` 为唯一权威。附属图层会合成进所属主动作，不会被重复导出成另一组。两种导出都会把实际使用的音频复制到批次根目录的 `audio/`；Agent 再次导入 Sheet 时会从 `spritesheet.json` 恢复音频文件和帧卡绑定。
+导入阶段不要求用户预先决定统一画布。先在页面里校准当前角色的所有动作、图层、逐帧音效和拖尾；“透明序列导出”会扫描该角色全部主动作组的实际可见像素范围，加入可调透明边距，再自动得到一个不会裁切且尽量紧凑的全角色统一画布。所有动作共享这个尺寸和同一个角色原点，切换动作时不会跳位。Lite 中的拖尾棍子只负责绘制空间轨迹，只有在“拖尾插入”中明确加入当前人物帧的拖尾范围才会显示和导出。每张可播放源帧始终只生成一张最终烘焙帧，主帧、附加帧和该帧拖尾会合成到同一张透明 PNG。把音频文件拖到帧卡即可绑定并预览，点击帧卡上的喇叭可以删除。点击任一导出按钮都会先打开系统文件夹选择器，不会写入固定的 Lite 内部路径。“导出 PNG 序列”为当前角色的每个主动作分别写逐帧透明 PNG，并用 `export.json` 作为唯一描述文件；“导出 Sheet + JSON”为每个主动作只写 `spritesheet.png` 和可被 Lite 重新导入的 `spritesheet.json`，不再生成重复的 `export.json`。Sheet 的帧时长、源帧映射和音效都以 `spritesheet.json` 为唯一权威。附属图层会合成进所属主动作，不会被重复导出成另一组。两种导出都会把实际使用的音频复制到批次根目录的 `audio/`；Agent 再次导入 Sheet 时会从 `spritesheet.json` 恢复音频文件和帧卡绑定。
 
 Lite 本地数据保存在：
 

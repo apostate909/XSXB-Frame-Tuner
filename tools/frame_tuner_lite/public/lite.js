@@ -13,11 +13,10 @@
         <div class="liteExportBody">
           <div class="liteCanvasGrid">
             <label class="number"><span>透明边距 px</span><input id="liteCanvasPadding" type="number" min="0" max="1024" step="1" value="24"></label>
-            <label class="number"><span>相位最长 ms</span><input id="litePhaseDurationMs" type="number" min="1" max="1000" step="1" value="80"></label>
             <label class="number"><span>Sheet 列数</span><input id="liteSheetColumns" type="number" min="1" max="64" step="1" value="8"></label>
           </div>
           <div class="liteCanvasResult"><span>全角色统一画布</span><strong id="liteCanvasResult">等待计算</strong></div>
-          <p class="liteExportHelp">先校准当前角色的所有动作、图层、帧音效与拖尾。相位最长时长只决定一个源帧按真实毫秒时长拆成多少个拖尾采样；棍子数量只改变空间路径，不改变导出数量。把音频拖到帧卡即可绑定；导出时会扫描该角色全部主动作组，使用同一画布尺寸和角色原点，并把音效文件与播放帧写入 JSON。附属图层会合成到所属动作，不重复导出。</p>
+          <p class="liteExportHelp">棍子只负责绘制拖尾轨迹；拖尾必须在“拖尾插入”中逐帧加入。导出时每张可播放源帧只生成一张透明烘焙帧，主帧、附加帧和该帧拖尾会合成到同一张 PNG，并保持全角色统一画布和稳定角色原点。附属图层不会重复导出。</p>
           <button id="liteMeasureCanvas" type="button" class="secondary liteMeasureButton">重新计算全角色画布</button>
           <div class="liteExportActions">
             <button id="liteExportSequence" type="button" class="liteExportButton">导出 PNG 序列</button>
@@ -37,7 +36,6 @@
     document.querySelector("#liteExportSheet").addEventListener("click", () => exportOutput("sheet"));
     document.querySelector("#liteMeasureCanvas").addEventListener("click", measureCanvas);
     document.querySelector("#liteCanvasPadding").addEventListener("input", invalidateLayout);
-    document.querySelector("#litePhaseDurationMs").addEventListener("input", invalidateLayout);
     state.initialized = true;
     applyLiteLabels();
     syncSettings();
@@ -64,7 +62,6 @@
     if (!current) return;
     const settings = current.settings || {};
     input("liteCanvasPadding").value = Math.round(number(settings.canvas?.padding, 0, 1024, 24));
-    input("litePhaseDurationMs").value = Math.round(number(settings.export?.phaseDurationMs, 1, 1000, 80));
     input("liteSheetColumns").value = Math.round(number(settings.export?.sheetColumns, 1, 64, 8));
     state.layout = settings.canvas?.autoMeasured === true ? {
       width: Math.round(number(settings.canvas.width, 1, 8192, 1)),
@@ -82,7 +79,6 @@
   function options() {
     return {
       padding: Math.round(number(input("liteCanvasPadding").value, 0, 1024, 24)),
-      phaseDurationMs: Math.round(number(input("litePhaseDurationMs").value, 1, 1000, 80)),
       columns: Math.round(number(input("liteSheetColumns").value, 1, 64, 8)),
     };
   }
@@ -109,20 +105,20 @@
     };
   }
 
-  async function collectExportGroups(api, phaseDurationMs) {
+  async function collectExportGroups(api) {
     const originalGroupId = api.current().groupId;
     const groups = api.exportGroups();
     const targets = [];
     try {
       for (const group of groups) {
         const current = await api.selectGroup(group.groupId);
-        const samples = api.timeline(phaseDurationMs);
+        const samples = api.timeline();
         targets.push({
           ...group,
           profileId: current.profileId,
           animationId: current.animationId,
           samples,
-          audio: api.audio(phaseDurationMs, samples),
+          audio: api.audio(samples),
         });
       }
     } finally {
@@ -196,7 +192,7 @@
     input("liteExportSequence").disabled = true;
     input("liteExportSheet").disabled = true;
     try {
-      const batch = await collectExportGroups(api, config.phaseDurationMs);
+      const batch = await collectExportGroups(api);
       if (!batch.targets.length) throw new Error("当前角色没有可导出的动作组。");
       state.layout = await calculateOptimalLayout(api, batch, config, status);
       renderLayout();
@@ -253,7 +249,7 @@
     await writeBlob(directory, filename, new Blob([`${JSON.stringify(value, null, 2)}\n`], { type: "application/json" }));
   }
 
-  function sheetJson(metadataFrames, sheet, phaseDurationMs, canvas, audio) {
+  function sheetJson(metadataFrames, sheet, canvas, audio) {
     const integerDurations = window.XsxbTimingModes.distributeIntegerMilliseconds(
       metadataFrames.map((frame) => frame.durationMs),
     );
@@ -272,7 +268,6 @@
         image: "spritesheet.png",
         format: "RGBA8888",
         size: { w: sheet.width, h: sheet.height },
-        phaseDurationMs,
         canvas,
       },
       audio,
@@ -377,7 +372,7 @@
         mode: "readwrite",
         startIn: "downloads",
       });
-      const batch = await collectExportGroups(api, config.phaseDurationMs);
+      const batch = await collectExportGroups(api);
       if (!batch.targets.length) throw new Error("当前角色没有可导出的动作组。");
       state.layout = await calculateOptimalLayout(api, batch, config, status);
       renderLayout();
@@ -385,7 +380,7 @@
       await postJson("/api/lite/settings", {
         projectId: current.projectId,
         canvas: { ...state.layout, autoMeasured: true },
-        export: { phaseDurationMs: config.phaseDurationMs, sheetColumns: config.columns },
+        export: { sheetColumns: config.columns },
       });
       const batchName = batchFolderName(current.profileId, kind);
       const batchDirectory = await chosenDirectory.getDirectoryHandle(batchName, { create: true });
@@ -439,7 +434,7 @@
         if (kind === "sheet") {
           status.textContent = `正在写入 ${groupIndex + 1}/${batch.targets.length} · ${target.name} Sheet + JSON`;
           await writeDataUrl(targetDirectory, "spritesheet.png", sheet.toDataURL("image/png"));
-          await writeJson(targetDirectory, "spritesheet.json", sheetJson(metadataFrames, { width: sheetWidth, height: sheetHeight }, config.phaseDurationMs, state.layout, audio));
+          await writeJson(targetDirectory, "spritesheet.json", sheetJson(metadataFrames, { width: sheetWidth, height: sheetHeight }, state.layout, audio));
         }
         if (kind === "sequence") {
           await writeJson(targetDirectory, "export.json", {
@@ -447,7 +442,6 @@
             profileId: selected.profileId,
             animationId: selected.animationId,
             canvas: { ...state.layout, autoMeasured: true },
-            phaseDurationMs: config.phaseDurationMs,
             kind,
             audio,
             frames: metadataFrames,

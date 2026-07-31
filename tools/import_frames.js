@@ -1,8 +1,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { EMPTY_MANIFEST, EMPTY_TUNING, createProjectStore, godotProjectName, slug } = require("./project_store");
+const { EMPTY_MANIFEST, EMPTY_TUNING, createProjectStore, godotProjectName, projectEngine, slug } = require("./project_store");
 const { syncGodotProject } = require("./godot_sync");
-const { upsertEstimatedFrameBoxes } = require("./box_estimator");
+const { frameBoxCoverageIssues, upsertEstimatedFrameBoxes } = require("./box_estimator");
 const { ensureInitialCharacterScale } = require("./import_scale");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -180,9 +180,16 @@ function main() {
   upsertEstimatedFrameBoxes(tuning, profileId, animation, frameFiles, {
     replace: args.replace || existingIndex < 0,
   });
+  const boxIssues = frameBoxCoverageIssues(tuning, profileId, animation);
+  if (boxIssues.length) {
+    const summary = [...new Set(boxIssues.map((issue) => issue.kind))].join(", ");
+    throw new Error(`Import blocked: ${animationId} still has ${boxIssues.length} missing or invalid frame boxes (${summary}).`);
+  }
   projectStore.writeJson(paths.manifest, manifest);
   projectStore.writeJson(paths.tuning, tuning);
-  const godotSync = syncGodotProject(ROOT, projectStore, project, { manifest, tuning });
+  const godotSync = projectEngine(project) === "godot"
+    ? syncGodotProject(ROOT, projectStore, project, { manifest, tuning })
+    : { ok: false, reason: `Skipped Godot sync for ${projectEngine(project)} project` };
   console.log(`Imported ${frames.length} frames`);
   console.log(`Project: ${project.id}`);
   console.log(`Profile: ${profileId}`);

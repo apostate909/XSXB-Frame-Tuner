@@ -9,6 +9,12 @@ const {
   saveAttackTrailTexture,
   validateAttackTrails,
 } = require("../attack_trails");
+const {
+  attackTrailsWithSharedPresets,
+  attackTrailsWithoutSharedPresets,
+  saveSharedAttackTrailPresets,
+  sharedAttackTrailPresetPath,
+} = require("../attack_trail_presets");
 const { EMPTY_MANIFEST, EMPTY_SETTINGS, EMPTY_TUNING, createLiteStore, reslash, slug } = require("./store");
 const { withUtf8Charset } = require("../http_content_type");
 
@@ -92,7 +98,9 @@ function saveFrameAudioBindings(project, payload) {
     } else {
       full = safeResolve(ROOT, input.path || input.file || "");
       const extension = path.extname(full || "").toLowerCase();
-      if (!full || !isInside(full, workspace) || !fs.existsSync(full) || !AUDIO_MIME_BY_EXTENSION[extension]) continue;
+      if (!full || !isInside(full, workspace) || !fs.existsSync(full) || !AUDIO_MIME_BY_EXTENSION[extension]) {
+        throw new Error(`${input.name || "音效"}: 缺少可保存的音频数据或 Lite 稳定路径，已阻止覆盖原音效。`);
+      }
       mime = mime || AUDIO_MIME_BY_EXTENSION[extension];
     }
     bindings.push({
@@ -238,7 +246,8 @@ function projectData(project) {
   const manifest = normalizeManifest(store.readJson(target.manifest, EMPTY_MANIFEST));
   const tuning = store.readJson(target.tuning, EMPTY_TUNING);
   tuning.values = tuning.values && typeof tuning.values === "object" ? tuning.values : {};
-  const attackTrails = normalizeAttackTrails(store.readJson(target.attackTrails, EMPTY_ATTACK_TRAILS));
+  const localAttackTrails = normalizeAttackTrails(store.readJson(target.attackTrails, EMPTY_ATTACK_TRAILS));
+  const attackTrails = attackTrailsWithSharedPresets(ROOT, `lite:${project.id}`, localAttackTrails);
   const audio = audioBindingsArray(store.readJson(target.frameAudio, []));
   const attachments = store.readJson(target.frameImageAttachments, []);
   const rawSettings = store.readJson(target.settings, EMPTY_SETTINGS);
@@ -246,12 +255,138 @@ function projectData(project) {
     schemaVersion: 1,
     canvas: rawSettings.canvas && typeof rawSettings.canvas === "object" ? rawSettings.canvas : { ...EMPTY_SETTINGS.canvas },
     export: {
-      phaseDurationMs: Math.min(1000, Math.max(1, Math.round(Number(rawSettings.export?.phaseDurationMs || 80)))),
       sheetColumns: Math.min(64, Math.max(1, Math.round(Number(rawSettings.export?.sheetColumns || 8)))),
     },
   };
   if (JSON.stringify(rawSettings) !== JSON.stringify(settings)) store.writeJson(target.settings, settings);
   return { target, manifest, tuning, attackTrails, audio, attachments: Array.isArray(attachments) ? attachments : [], settings };
+}
+
+function projectConfigRevision(project) {
+  const target = store.paths(project);
+  const hash = crypto.createHash("sha256");
+  for (const filePath of [
+    target.manifest,
+    target.tuning,
+    target.frameAudio,
+    target.frameImageAttachments,
+    target.attackTrails,
+    sharedAttackTrailPresetPath(ROOT),
+  ]) {
+    hash.update(path.basename(filePath));
+    hash.update("\0");
+    hash.update(fs.existsSync(filePath) ? fs.readFileSync(filePath) : Buffer.alloc(0));
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+}
+
+function remapFrameOverrideDictionary(source, framePrefix, frameIndex) {
+  const result = {};
+  for (const [key, value] of Object.entries(source || {})) {
+    if (!key.startsWith(framePrefix) || !/^\d+$/.test(key.slice(framePrefix.length))) {
+      result[key] = value;
+      continue;
+    }
+    const currentFrame = Number(key.slice(framePrefix.length));
+    result[`${framePrefix}${currentFrame > frameIndex ? currentFrame + 1 : currentFrame}`] = value;
+    if (currentFrame === frameIndex) result[`${framePrefix}${frameIndex + 1}`] = structuredClone(value);
+  }
+  return result;
+}
+
+function bindingTargetsFrame(entry, profileId, animationId) {
+  const metadata = entry?.metadata && typeof entry.metadata === "object" ? entry.metadata : {};
+  const profile = String(metadata.profileId || entry?.profileId || "");
+  const animation = String(metadata.animation || entry?.animation || "");
+  return profile === profileId && (animation === animationId || animation === `${profileId}/${animationId}`);
+}
+
+function bindingAtFrame(entry, frameIndex, options = {}) {
+  const next = structuredClone(entry);
+  const replaceFrameSuffix = (value) => String(value || "").replace(/:\d+$/, `:${frameIndex}`);
+  if (next.key) next.key = replaceFrameSuffix(next.key);
+  if (next.frameKey) next.frameKey = replaceFrameSuffix(next.frameKey);
+  if (Number.isFinite(Number(next.frame))) next.frame = frameIndex;
+  if (Number.isFinite(Number(next.displayFrame))) next.displayFrame = frameIndex;
+  if (next.metadata && typeof next.metadata === "object") {
+    next.metadata.frame = frameIndex;
+    next.metadata.displayFrame = frameIndex;
+  }
+  if (options.newId && next.id) next.id = `layer_${crypto.randomBytes(10).toString("hex")}`;
+  return next;
+}
+
+function duplicateFrameBindings(entries, profileId, animationId, frameIndex, options = {}) {
+  const result = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (!bindingTargetsFrame(entry, profileId, animationId)) {
+      result.push(entry);
+      continue;
+    }
+    const metadata = entry?.metadata && typeof entry.metadata === "object" ? entry.metadata : {};
+    const currentFrame = Number(metadata.frame ?? entry.frame);
+    if (!Number.isFinite(currentFrame)) {
+      result.push(entry);
+      continue;
+    }
+    result.push(bindingAtFrame(entry, currentFrame > frameIndex ? currentFrame + 1 : currentFrame));
+    if (currentFrame === frameIndex) result.push(bindingAtFrame(entry, frameIndex + 1, options));
+  }
+  return result;
+}
+
+function duplicateTrailFrameSlices(trails, bindingKey, frameIndex) {
+  const next = structuredClone(trails);
+  const segments = Array.isArray(next.bindings?.[bindingKey]) ? next.bindings[bindingKey] : [];
+  for (const segment of segments) {
+    for (const stick of Array.isArray(segment.sticks) ? segment.sticks : []) {
+      if (Number(stick.frame) > frameIndex) stick.frame = Number(stick.frame) + 1;
+    }
+    if (!segment.frameSlices || typeof segment.frameSlices !== "object" || Array.isArray(segment.frameSlices)) continue;
+    const slices = {};
+    for (const [rawFrame, slice] of Object.entries(segment.frameSlices)) {
+      const currentFrame = Number(rawFrame);
+      if (!Number.isFinite(currentFrame)) continue;
+      slices[String(currentFrame > frameIndex ? currentFrame + 1 : currentFrame)] = slice;
+      if (currentFrame === frameIndex) slices[String(frameIndex + 1)] = structuredClone(slice);
+    }
+    segment.frameSlices = slices;
+  }
+  return next;
+}
+
+function duplicateProjectFrame(project, payload) {
+  const profileId = String(payload.profileId || "");
+  const animationId = String(payload.animationId || "");
+  const frameIndex = Math.max(0, Math.round(Number(payload.frameIndex || 0)));
+  const target = store.paths(project);
+  const manifest = store.readJson(target.manifest, EMPTY_MANIFEST);
+  const profile = (Array.isArray(manifest.profiles) ? manifest.profiles : []).find((entry) => String(entry.id) === profileId);
+  const animation = profile?.animations?.find((entry) => String(entry.id || entry.name) === animationId);
+  const frames = Array.isArray(animation?.frames) ? animation.frames : null;
+  if (!profile || !animation || !frames || frameIndex >= frames.length) {
+    throw new Error(`Frame not found: ${profileId}/${animationId}:${frameIndex}`);
+  }
+  const copiedFrame = structuredClone(frames[frameIndex]);
+  copiedFrame.id = `${String(copiedFrame.id || `frame_${frameIndex + 1}`)}_copy_${crypto.randomBytes(5).toString("hex")}`;
+  frames.splice(frameIndex + 1, 0, copiedFrame);
+
+  const tuning = store.readJson(target.tuning, EMPTY_TUNING);
+  const framePrefix = `${profileId}/${animationId}:`;
+  tuning.frame_visual_overrides = remapFrameOverrideDictionary(tuning.frame_visual_overrides, framePrefix, frameIndex);
+  tuning.frame_playback_overrides = remapFrameOverrideDictionary(tuning.frame_playback_overrides, framePrefix, frameIndex);
+  tuning.frame_box_overrides = remapFrameOverrideDictionary(tuning.frame_box_overrides, framePrefix, frameIndex);
+  const audio = duplicateFrameBindings(audioBindingsArray(store.readJson(target.frameAudio, [])), profileId, animationId, frameIndex);
+  const attachments = duplicateFrameBindings(store.readJson(target.frameImageAttachments, []), profileId, animationId, frameIndex, { newId: true });
+  const trails = duplicateTrailFrameSlices(normalizeAttackTrails(store.readJson(target.attackTrails, EMPTY_ATTACK_TRAILS)), `${profileId}/${animationId}`, frameIndex);
+
+  store.writeJson(target.manifest, manifest);
+  store.writeJson(target.tuning, tuning);
+  store.writeJson(target.frameAudio, audio);
+  store.writeJson(target.frameImageAttachments, attachments);
+  store.writeJson(target.attackTrails, trails);
+  return { frameIndex: frameIndex + 1, frameCount: frames.length, warnings: validateLiteProject(project) };
 }
 
 function validateLiteProject(project, data = projectData(project)) {
@@ -290,7 +425,7 @@ function configResponse(projectId) {
       root: ROOT, workspaceRoot: path.join(ROOT, "workspace", "lite"), workspaceAllRoot: path.join(ROOT, "workspace", "lite"), projectRoot: "",
       activeProjectId: "", activeProject: null, projects, scenes: [], profiles: [], frameAudioBindings: [], frameImageAttachments: [],
       attackTrails: EMPTY_ATTACK_TRAILS, tuning: clone(EMPTY_TUNING), warnings: ["Lite 还没有素材。请让 Agent 导入 PNG 序列或 PNG+JSON sheet。"],
-      references: {}, projectKind: "frame_lite", liteSettings: clone(EMPTY_SETTINGS), groups: [],
+      references: {}, projectKind: "frame_lite", liteSettings: clone(EMPTY_SETTINGS), groups: [], configRevision: "",
     };
   }
   const data = projectData(project);
@@ -302,6 +437,7 @@ function configResponse(projectId) {
     tuning: { ...data.tuning.values, scene_settings: data.tuning.scene_settings || {}, frame_visual_overrides: data.tuning.frame_visual_overrides || {}, frame_playback_overrides: data.tuning.frame_playback_overrides || {}, frame_box_overrides: data.tuning.frame_box_overrides || {} },
     tuningDefaults: {}, bossTuning: {}, act2StatueBossTuning: {}, act2StatueBossDefaults: {}, huangXianTuning: {}, huangXianDefaults: {}, huangXianManifest: {}, soulTuning: {}, soulDefaults: {}, soulManifest: {}, yechengPropTuning: {}, yechengPropDefaults: {},
     warnings: validateLiteProject(project, data), references: {}, projectKind: "frame_lite", liteSettings: data.settings,
+    configRevision: projectConfigRevision(project),
     groups: buildGroups(data.manifest, data.tuning),
   };
 }
@@ -339,7 +475,11 @@ function savePayload(project, payload) {
     frame_box_overrides: payload.frame_box_overrides && typeof payload.frame_box_overrides === "object" ? payload.frame_box_overrides : {},
   };
   store.writeJson(target.tuning, tuning);
-  const audio = saveFrameAudioBindings(project, payload.frame_audio_bindings || payload.frameAudioBindings || []);
+  const requestedAudio = payload.frame_audio_bindings || payload.frameAudioBindings || [];
+  const currentAudio = audioBindingsArray(store.readJson(target.frameAudio, []));
+  const audio = Array.isArray(requestedAudio) && requestedAudio.length === 0 && currentAudio.length > 0
+    ? currentAudio
+    : saveFrameAudioBindings(project, requestedAudio);
   const attachments = Array.isArray(payload.frame_image_attachments) ? payload.frame_image_attachments : [];
   store.writeJson(target.frameImageAttachments, attachments);
   const trails = normalizeAttackTrails(payload.attack_trails || EMPTY_ATTACK_TRAILS);
@@ -353,8 +493,10 @@ function savePayload(project, payload) {
       if (segment.colorMode === "original" && !segment.texture?.hasEffectiveAlpha) throw new Error(`${segment.name}: 原色模式需要带有效 Alpha 的 RGBA PNG。`);
     }
   }
-  store.writeJson(target.attackTrails, trails);
-  return { tuning, audio, attachments, trails };
+  saveSharedAttackTrailPresets(ROOT, `lite:${project.id}`, trails.presets);
+  const projectTrails = attackTrailsWithoutSharedPresets(trails);
+  store.writeJson(target.attackTrails, projectTrails);
+  return { tuning, audio, attachments, trails: projectTrails };
 }
 
 function serveIndex(res) {
@@ -391,12 +533,45 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, activeProjectId: registry.activeProjectId, projects: registry.projects.map(store.projectForClient) });
     }
     if (req.method === "GET" && url.pathname === "/api/config") return send(res, 200, configResponse(url.searchParams.get("project")));
+    if (req.method === "POST" && url.pathname === "/api/duplicate-frame") {
+      const payload = JSON.parse(await readBody(req));
+      const project = store.resolveProject(payload.projectId);
+      if (!project) return send(res, 404, { error: "Lite project not found." });
+      const currentRevision = projectConfigRevision(project);
+      if (payload.force !== true && String(payload.configRevision || "") !== currentRevision) {
+        return send(res, 409, {
+          error: "服务器数据已被其他页面或工具更新，本次旧页面复制已阻止。请刷新页面后再操作。",
+          code: "stale_config",
+          configRevision: currentRevision,
+        });
+      }
+      const duplicated = duplicateProjectFrame(project, payload);
+      return send(res, 200, {
+        ok: true,
+        ...duplicated,
+        configRevision: projectConfigRevision(project),
+      });
+    }
     if (req.method === "POST" && url.pathname === "/api/save") {
       const payload = JSON.parse(await readBody(req));
       const project = store.resolveProject(payload.projectId);
       if (!project) return send(res, 404, { error: "Lite project not found." });
+      const currentRevision = projectConfigRevision(project);
+      if (payload.force !== true && String(payload.configRevision || "") !== currentRevision) {
+        return send(res, 409, {
+          error: "服务器数据已被其他页面或工具更新，本次旧页面保存已阻止。请刷新页面后再操作。",
+          code: "stale_config",
+          configRevision: currentRevision,
+        });
+      }
       const saved = savePayload(project, payload);
-      return send(res, 200, { ok: true, warnings: validateLiteProject(project), godotSync: null, frameAudioCount: saved.audio.length });
+      return send(res, 200, {
+        ok: true,
+        configRevision: projectConfigRevision(project),
+        warnings: validateLiteProject(project),
+        godotSync: null,
+        frameAudioCount: saved.audio.length,
+      });
     }
     if (req.method === "POST" && url.pathname === "/api/attack-trail-texture") {
       const payload = JSON.parse(await readBody(req));
@@ -436,7 +611,6 @@ const server = http.createServer(async (req, res) => {
           autoMeasured: payload.canvas?.autoMeasured === true,
         },
         export: {
-          phaseDurationMs: Math.min(1000, Math.max(1, Math.round(Number(payload.export?.phaseDurationMs || 80)))),
           sheetColumns: Math.min(64, Math.max(1, Math.round(Number(payload.export?.sheetColumns || 8)))),
         },
       };
@@ -447,8 +621,29 @@ const server = http.createServer(async (req, res) => {
       const payload = JSON.parse(await readBody(req));
       const project = store.resolveProject(payload.projectId);
       if (!project) return send(res, 404, { error: "Lite project not found." });
+      const currentRevision = projectConfigRevision(project);
+      if (payload.force !== true && String(payload.configRevision || "") !== currentRevision) {
+        return send(res, 409, {
+          error: "服务器数据已被其他页面或工具更新，本次旧页面音效同步已阻止。请刷新页面后再操作。",
+          code: "stale_config",
+          configRevision: currentRevision,
+        });
+      }
+      if (!Array.isArray(payload.frameAudioBindings)) {
+        return send(res, 400, { error: "frameAudioBindings 必须是数组，已阻止覆盖原音效。" });
+      }
+      const currentBindings = audioBindingsArray(store.readJson(store.paths(project).frameAudio, []));
+      if (!payload.frameAudioBindings.length && currentBindings.length && payload.allowEmpty !== true) {
+        return send(res, 400, { error: "页面提交了空音效列表，但没有明确删除授权，已保留服务器上的音效。" });
+      }
       const bindings = saveFrameAudioBindings(project, payload.frameAudioBindings || []);
-      return send(res, 200, { ok: true, frameAudioCount: bindings.length, frameAudioBindings: bindings, godotAudioSync: null });
+      return send(res, 200, {
+        ok: true,
+        configRevision: projectConfigRevision(project),
+        frameAudioCount: bindings.length,
+        frameAudioBindings: bindings,
+        godotAudioSync: null,
+      });
     }
     if (req.method === "GET" && url.pathname === "/asset") {
       const full = safeResolve(ROOT, url.searchParams.get("path"));
@@ -472,4 +667,14 @@ if (require.main === module) {
   });
 }
 
-module.exports = { AUDIO_MIME_BY_EXTENSION, buildGroups, configResponse, saveFrameAudioBindings, server, validateLiteProject };
+module.exports = {
+  AUDIO_MIME_BY_EXTENSION,
+  buildGroups,
+  configResponse,
+  duplicateFrameBindings,
+  duplicateTrailFrameSlices,
+  remapFrameOverrideDictionary,
+  saveFrameAudioBindings,
+  server,
+  validateLiteProject,
+};

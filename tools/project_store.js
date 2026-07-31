@@ -72,6 +72,44 @@ function godotProjectName(projectRoot) {
   }
 }
 
+function unityProjectName(projectRoot) {
+  if (!projectRoot) return "";
+  const settingsDir = path.join(projectRoot, "ProjectSettings");
+  if (!fs.existsSync(settingsDir)) return "";
+  const productSettings = path.join(settingsDir, "ProjectSettings.asset");
+  try {
+    const text = fs.readFileSync(productSettings, "utf8");
+    const match = text.match(/^\s*productName:\s*(.+)\s*$/m);
+    return String(match?.[1] || "").trim().replace(/^['"]|['"]$/g, "");
+  } catch {
+    return "";
+  }
+}
+
+function projectEngine(project) {
+  const kind = String(project?.kind || project?.engine || "godot").toLowerCase();
+  if (kind === "unity") return "unity";
+  if (kind === "frame_lite") return "lite";
+  if (kind === "codex_pets") return "codex_pets";
+  return "godot";
+}
+
+function bindingScopeForProject(registry, project) {
+  const dataDir = reslash(project?.dataDir || "").replace(/\/+$/, "").toLowerCase();
+  const matches = (Array.isArray(registry?.projects) ? registry.projects : [])
+    .filter((entry) => reslash(entry?.dataDir || "").replace(/\/+$/, "").toLowerCase() === dataDir);
+  const dataProjectIds = matches.map((entry) => String(entry.id || "")).filter(Boolean);
+  const dataDirId = reslash(project?.dataDir || "").split("/").filter(Boolean).at(-1) || "";
+  const authority = matches.find((entry) => entry.id === dataDirId)
+    || matches.find((entry) => projectEngine(entry) === "godot")
+    || matches[0]
+    || project;
+  return {
+    bindingProjectId: String(authority?.id || project?.id || ""),
+    dataProjectIds: dataProjectIds.length ? dataProjectIds : [String(project?.id || "")].filter(Boolean),
+  };
+}
+
 function uniqueId(baseId, usedIds) {
   const base = slug(baseId, "project");
   let candidate = base;
@@ -141,7 +179,7 @@ function ensureProjectFiles(root, project) {
     writeJson(paths.frameImageAttachments, []);
   }
   if (!fs.existsSync(paths.attackTrails)) {
-    writeJson(paths.attackTrails, { schemaVersion: 2, bindings: {} });
+    writeJson(paths.attackTrails, { schemaVersion: 21, presets: [], bindings: {} });
   }
 }
 
@@ -151,7 +189,7 @@ function normalizeProject(raw, usedIds, fallback) {
   return {
     id,
     label: String(source.label || source.name || id),
-    kind: String(source.kind || "godot"),
+    kind: String(source.kind || source.engine || "godot").toLowerCase(),
     projectRoot: String(source.projectRoot || source.root || ""),
     petRoot: String(source.petRoot || ""),
     dataDir: reslash(source.dataDir || `data/projects/${id}`),
@@ -239,13 +277,15 @@ function createProjectStore(root) {
       }
     }
 
-    const label = String(payload.label || payload.name || payload.id || godotProjectName(projectRoot) || (projectRoot ? path.basename(projectRoot) : "") || "New Project").trim() || "New Project";
+    const kind = String(payload.kind || payload.engine || "godot").toLowerCase();
+    const detectedName = kind === "unity" ? unityProjectName(projectRoot) : godotProjectName(projectRoot);
+    const label = String(payload.label || payload.name || payload.id || detectedName || (projectRoot ? path.basename(projectRoot) : "") || "New Project").trim() || "New Project";
     const usedIds = new Set(registry.projects.map((project) => project.id));
     const id = uniqueId(payload.id || label, usedIds);
     const project = {
       id,
       label,
-      kind: String(payload.kind || "godot"),
+      kind,
       projectRoot,
       petRoot: String(payload.petRoot || ""),
       dataDir: `data/projects/${id}`,
@@ -262,6 +302,7 @@ function createProjectStore(root) {
       id: project.id,
       label: project.label,
       kind: project.kind || "godot",
+      engine: projectEngine(project),
       projectRoot: project.projectRoot,
       petRoot: project.petRoot || "",
       dataDir: reslash(project.dataDir),
@@ -299,8 +340,11 @@ module.exports = {
   DEFAULT_PROJECT_ID,
   EMPTY_MANIFEST,
   EMPTY_TUNING,
+  bindingScopeForProject,
   createProjectStore,
   godotProjectName,
+  projectEngine,
   reslash,
   slug,
+  unityProjectName,
 };
