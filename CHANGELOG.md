@@ -12,6 +12,7 @@
 
 ### Fixes
 
+- Preserve native source pixel density when baking Unity owner, attachment, and trail composites, compensate the bake density at runtime so authored size and anchors stay unchanged, and import baked textures without Unity compression or a 2048 px cap.
 - Keep a selected path-only stick visible as an authoring preview after its head-frame flag is cleared, without making it a runtime or exported head pose.
 - Prefer the generated trail over its style preset when opening an action, and label presets as not affecting existing trails so live timing edits apply to the visible trail.
 - Keep attack trails advancing continuously across frame boundaries so a longer total duration finishes in following animation frames instead of flashing once.

@@ -273,6 +273,7 @@ function syncBakedFrames(projectRoot, project, input) {
       assetPath,
       width: Math.max(1, Math.round(Number(source?.width || 1))),
       height: Math.max(1, Math.round(Number(source?.height || 1))),
+      bakedPixelScale: Math.max(1, Number(source?.bakedPixelScale || 1)),
       offset: {
         x: Number(source?.offset?.x || 0),
         y: Number(source?.offset?.y || 0),

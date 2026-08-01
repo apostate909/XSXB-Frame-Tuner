@@ -175,6 +175,7 @@ function buildRuntimeData(options = {}) {
           bakedComposite: Boolean(bakedFrame),
           bakedOffset: bakedFrame ? vector(bakedFrame.offset) : null,
           bakedMainAnchor: bakedFrame ? vector(bakedFrame.mainAnchor) : null,
+          bakedPixelScale: bakedFrame ? Math.max(1, number(bakedFrame.bakedPixelScale, 1)) : 1,
           width: number(bakedFrame?.width, number(frame.width)),
           height: number(bakedFrame?.height, number(frame.height)),
           durationMs: frameDurationMs,

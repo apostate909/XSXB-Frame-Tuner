@@ -5457,6 +5457,7 @@ async function renderLiteExportFrame(sample, options = {}) {
   }
   const width = Math.min(8192, Math.max(1, Math.round(Number(options.width || 1024))));
   const height = Math.min(8192, Math.max(1, Math.round(Number(options.height || 1024))));
+  const pixelScale = Math.min(64, Math.max(1, Number(options.pixelScale || 1)));
   const originPixelX = Number.isFinite(Number(options.originPixelX))
     ? Number(options.originPixelX)
     : width * Math.min(1, Math.max(0, Number(options.originX ?? 0.5)));
@@ -5497,10 +5498,12 @@ async function renderLiteExportFrame(sample, options = {}) {
     els.stage.height = height;
     const exportSceneScale = options.excludeSceneScale === true ? activeSceneScale() : 1;
     view = {
-      zoom: 1 / Math.max(0.0001, devicePixelRatio * exportSceneScale),
+      zoom: pixelScale / Math.max(0.0001, devicePixelRatio * exportSceneScale),
       x: originPixelX,
       y: originPixelY,
     };
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.clearRect(0, 0, width, height);
     const mainFrameRect = currentFrameRect(frameIndex);
     drawLiteExportComposite(frameIndex);
@@ -6117,6 +6120,36 @@ function unityBakeAnimationId(group) {
   return raw.includes("/") ? raw.slice(raw.lastIndexOf("/") + 1) : raw;
 }
 
+function unityBakePixelScaleForFrame(frameIndex, group = currentGroup, groupImages = images) {
+  const image = groupImages?.[frameIndex];
+  if (!image || !group) return 1;
+  const transform = renderTransformForGroup(frameTransform(frameIndex, group), group);
+  const sceneScale = Math.max(0.0001, activeSceneScale());
+  const runtimeScale = runtimeBaseScaleForGroup(frameIndex, group, groupImages) / sceneScale;
+  const scaleX = Math.abs(runtimeScale * Number(transform.scaleX ?? transform.scale ?? 1));
+  const scaleY = Math.abs(runtimeScale * Number(transform.scaleY ?? transform.scale ?? 1));
+  const smallestScale = Math.min(scaleX, scaleY);
+  if (!Number.isFinite(smallestScale) || smallestScale <= 0) return 1;
+  return Math.min(64, Math.max(1, 1 / smallestScale));
+}
+
+function unityBakePixelScaleThatFits(bounds, desiredScale, options = {}) {
+  if (!bounds) return 1;
+  const width = Math.max(1, Number(options.width || 4096));
+  const height = Math.max(1, Number(options.height || 4096));
+  const originX = Number(options.originX ?? width * 0.5);
+  const originY = Number(options.originY ?? height * 0.5);
+  const logicalPadding = Math.max(1, Number(options.logicalPadding || 8));
+  const directionalLimits = [
+    (originX - 1) / Math.max(logicalPadding, originX - bounds.left + logicalPadding),
+    (width - originX - 1) / Math.max(logicalPadding, bounds.right - originX + logicalPadding),
+    (originY - 1) / Math.max(logicalPadding, originY - bounds.top + logicalPadding),
+    (height - originY - 1) / Math.max(logicalPadding, bounds.bottom - originY + logicalPadding),
+  ].filter((value) => Number.isFinite(value) && value > 0);
+  const safeScale = directionalLimits.length ? Math.min(...directionalLimits) : 1;
+  return Math.max(1, Math.min(Number(desiredScale || 1), safeScale));
+}
+
 function unityBakedFrameIndexesForGroup(group, attachments, attackTrails) {
   let needsBake = false;
   const attachmentKeys = new Set((Array.isArray(attachments) ? attachments : [])
@@ -6175,19 +6208,37 @@ async function collectUnityBakedFramesForSave(attachments, attackTrails) {
       for (const frameIndex of indexes) {
         completed += 1;
         status(`正在生成 Unity 游戏帧 ${completed}/${total}…`);
-        const rendered = await renderLiteExportFrame({
+        const bakeCanvasSize = 4096;
+        const bakeOrigin = bakeCanvasSize * 0.5;
+        const sample = {
           frameIndex,
           time: attackTrailFrameArrival(frameIndex, 0.5, group),
-        }, {
+        };
+        const commonBakeOptions = {
           allowProjectExport: true,
           bakedComposite: true,
           excludeSceneScale: true,
+          width: bakeCanvasSize,
+          height: bakeCanvasSize,
+          originPixelX: bakeOrigin,
+          originPixelY: bakeOrigin,
+        };
+        const bounds = await renderLiteExportFrame(sample, {
+          ...commonBakeOptions,
+          measureOnly: true,
+        });
+        const desiredPixelScale = unityBakePixelScaleForFrame(frameIndex, group, images);
+        const bakedPixelScale = unityBakePixelScaleThatFits(bounds, desiredPixelScale, {
+          width: bakeCanvasSize,
+          height: bakeCanvasSize,
+          originX: bakeOrigin,
+          originY: bakeOrigin,
+        });
+        const rendered = await renderLiteExportFrame(sample, {
+          ...commonBakeOptions,
           crop: true,
-          padding: 6,
-          width: 2048,
-          height: 2048,
-          originPixelX: 1024,
-          originPixelY: 1024,
+          padding: Math.ceil(6 * bakedPixelScale),
+          pixelScale: bakedPixelScale,
         });
         if (!rendered?.data) throw new Error(`${group.name} 第 ${frameIndex + 1} 帧没有可导出的画面。`);
         bakedFrames.push({
@@ -6197,6 +6248,7 @@ async function collectUnityBakedFramesForSave(attachments, attackTrails) {
           data: rendered.data,
           width: rendered.width,
           height: rendered.height,
+          bakedPixelScale,
           mainAnchor: rendered.mainAnchor,
           offset: rendered.offset,
         });

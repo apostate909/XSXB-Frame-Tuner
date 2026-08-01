@@ -17,7 +17,7 @@ namespace XsxbFrameTuner
     [Serializable] public sealed class XsxbTrailStick { public string id; public int order; public int frame; public float framePhase; public string phaseMode; public bool headFrame; public string headFrameMode; public XsxbVector top; public XsxbVector bottom; public bool reverseDirection; public float directionOffset; public float tangentStrength; public string layer; }
     [Serializable] public sealed class XsxbTrailFrameSlice { public int frame; public bool enabled; public float tailProgress; public float headProgress; }
     [Serializable] public sealed class XsxbAttackTrailData { public string id; public string name; public bool enabled; public bool generated; public string profileId; public string animationId; public string coordinateSpace; public string layer; public XsxbTextureData texture; public string colorMode; public string color; public XsxbGradientStop[] gradientStops; public XsxbTrailStick[] sticks; public XsxbTrailFrameSlice[] frameSlices; public float totalDurationMs; public float tailHeadSpeedRatio; public int tailSamples; public float tailFadeStart; public float headCurvature; public float speedVariation; public int stableSeed; public int pathColumns; public int pathCacheSamples; public float collapsedWidth; }
-    [Serializable] public sealed class XsxbFrameData { public int index; public string id; public string name; public string assetPath; public string sourceAssetPath; public bool bakedComposite; public XsxbVector bakedOffset; public XsxbVector bakedMainAnchor; public int width; public int height; public float durationMs; public bool disabled; public XsxbTransformData transform; public XsxbBoxData[] boxes; public XsxbAssetBinding[] audio; public XsxbAssetBinding[] attachments; }
+    [Serializable] public sealed class XsxbFrameData { public int index; public string id; public string name; public string assetPath; public string sourceAssetPath; public bool bakedComposite; public XsxbVector bakedOffset; public XsxbVector bakedMainAnchor; public float bakedPixelScale; public int width; public int height; public float durationMs; public bool disabled; public XsxbTransformData transform; public XsxbBoxData[] boxes; public XsxbAssetBinding[] audio; public XsxbAssetBinding[] attachments; }
     [Serializable] public sealed class XsxbAnimationData { public string id; public string name; public string type; public string anchorMode; public XsxbVector sourceAnchor; public float fps; public float durationMs; public XsxbFrameData[] frames; public XsxbAttackTrailData[] attackTrails; }
     [Serializable] public sealed class XsxbProfileData { public string id; public string label; public string kind; public bool sourceFacesLeft; public XsxbTransformData characterTransform; public XsxbAnimationData[] animations; }
     [Serializable] public sealed class XsxbSceneSetting { public string scene; public float scale; }
@@ -452,9 +452,10 @@ namespace XsxbFrameTuner
                         .MultiplyPoint3x4(sourceSprite.bounds.center)
                     : originalRootPosition;
                 var mainAnchor = frame.bakedMainAnchor ?? new XsxbVector();
+                float bakedPixelScale = frame.bakedPixelScale > 0f ? frame.bakedPixelScale : 1f;
                 Vector2 bakedAnchorFromPivot = new Vector2(
                     mainAnchor.x * sceneScale.x * bakedMirror,
-                    mainAnchor.y * sceneScale.y) / pixelsPerUnit;
+                    mainAnchor.y * sceneScale.y) / (pixelsPerUnit * bakedPixelScale);
                 Vector2 rotatedBakedAnchor = RotateDegrees(
                     bakedAnchorFromPivot,
                     -sceneRotationDegrees * bakedMirror);
@@ -464,8 +465,8 @@ namespace XsxbFrameTuner
                     0f);
                 _visualRoot.localRotation = Quaternion.Euler(0f, 0f, -sceneRotationDegrees * bakedMirror);
                 _visualRoot.localScale = new Vector3(
-                    sceneScale.x * bakedMirror,
-                    sceneScale.y,
+                    sceneScale.x * bakedMirror / bakedPixelScale,
+                    sceneScale.y / bakedPixelScale,
                     1f);
                 return;
             }
@@ -765,6 +766,11 @@ namespace XsxbFrameTuner.Editor
         private static double nextSignalPollAt;
         private static readonly Dictionary<string, string> signalStamps = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+        public override uint GetVersion()
+        {
+            return 1;
+        }
+
         [InitializeOnLoadMethod]
         private static void ScheduleInitialRebuild()
         {
@@ -841,6 +847,12 @@ namespace XsxbFrameTuner.Editor
             importer.alphaIsTransparency = true;
             importer.mipmapEnabled = false;
             importer.filterMode = FilterMode.Bilinear;
+            if (assetPath.Contains("/BakedFrames/"))
+            {
+                importer.maxTextureSize = 8192;
+                importer.textureCompression = TextureImporterCompression.Uncompressed;
+                importer.crunchedCompression = false;
+            }
         }
 
         private static void OnPostprocessAllAssets(string[] imported, string[] deleted, string[] moved, string[] movedFrom)

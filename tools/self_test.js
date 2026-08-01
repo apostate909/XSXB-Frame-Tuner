@@ -646,6 +646,10 @@ assert.match(tunerAppSource, /async function syncFrameAudioBindingsToGame[\s\S]*
 assert.match(tunerAppSource, /allowEmpty: options\.allowEmpty === true/);
 assert.match(tunerAppSource, /syncFrameAudioBindingsToGame\(\{ allowEmpty: true \}\)/);
 assert.match(tunerAppSource, /function renderLiteExportFrame\(/);
+assert.match(tunerAppSource, /zoom: pixelScale \/ Math\.max/);
+assert.match(tunerAppSource, /function unityBakePixelScaleForFrame\(/);
+assert.match(tunerAppSource, /function unityBakePixelScaleThatFits\(/);
+assert.match(tunerAppSource, /bakedPixelScale,/);
 assert.match(tunerAppSource, /function liteExportAudio\(/);
 assert.match(tunerAppSource, /XsxbTimingModes\.bakedSequenceSamples\(playableFrames\)/);
 assert.match(tunerAppSource, /if \(attackTrailEditor\?\.isContinuous\(\)\) return true/);
@@ -1407,7 +1411,17 @@ try {
     frameSlices: { 0: { enabled: true, tailProgress: 0.2, headProgress: 0.85 } },
     sticks: [{ id: "s1", order: 0, frame: 0, framePhase: 0.5, top: { x: 0, y: -4 }, bottom: { x: 0, y: 4 }, layer: "front" }],
   }] } });
-  const result = syncUnityProject(unitySyncTestRoot, store, project);
+  const result = syncUnityProject(unitySyncTestRoot, store, project, { bakedFrames: [{
+    profileId: "hero",
+    animationId: "attack",
+    frameIndex: 0,
+    data: `data:image/png;base64,${fs.readFileSync(framePath).toString("base64")}`,
+    width: 48,
+    height: 64,
+    bakedPixelScale: 8,
+    offset: { x: 2, y: 3 },
+    mainAnchor: { x: 10, y: 12 },
+  }] });
   assert.equal(result.engine, "unity");
   assert.equal(result.frameCount, 2);
   assert.deepEqual(result.errors, []);
@@ -1425,6 +1439,8 @@ try {
   assert.equal(runtime.profiles[0].animations[0].durationMs, 100);
   assert.equal(runtime.profiles[0].animations[0].frames[0].durationMs, 100);
   assert.equal(runtime.profiles[0].animations[0].frames[1].disabled, true);
+  assert.equal(runtime.profiles[0].animations[0].frames[0].bakedPixelScale, 8);
+  assert.equal(runtime.profiles[0].animations[0].frames[1].bakedPixelScale, 1);
   assert.equal(runtime.profiles[0].characterTransform.uniformScale, 0.75);
   assert.deepEqual(runtime.profiles[0].animations[0].frames[0].transform.scale, { x: 1.5, y: 1.5 });
   assert.equal(runtime.profiles[0].animations[0].frames[0].transform.uniformScale, 1.5);
@@ -1432,8 +1448,9 @@ try {
   assert.deepEqual(runtime.profiles[0].animations[0].frames[0].attachments[0].scale, { x: 1.25, y: 0.75 });
   assert.equal(runtime.profiles[0].animations[0].frames[0].attachments[0].rotation, 12);
   assert.equal(runtime.profiles[0].animations[0].frames[0].attachments[0].layerOrder, -2);
-  assert.match(runtime.profiles[0].animations[0].frames[0].assetPath, /^Assets\/XSXBFrameTuner\/Frames\//);
+  assert.match(runtime.profiles[0].animations[0].frames[0].assetPath, /^Assets\/XSXBFrameTuner\/BakedFrames\//);
   assert.match(runtime.profiles[0].animations[0].frames[0].assetPath, /\.png$/);
+  assert.match(runtime.profiles[0].animations[0].frames[0].sourceAssetPath, /^Assets\/XSXBFrameTuner\/Frames\//);
   assert.match(runtime.profiles[0].animations[0].frames[0].audio[0].assetPath, /^Assets\/XSXBFrameTuner\/Audio\//);
   assert.match(runtime.profiles[0].animations[0].attackTrails[0].texture.assetPath, /^Assets\/XSXBFrameTuner\/AttackTrails\//);
   assert.equal(runtime.profiles[0].animations[0].attackTrails[0].sticks[0].headFrame, true);
@@ -1457,6 +1474,8 @@ try {
   assert.match(playerSource, /EnsureBox\("XSXB Hurtbox"/);
   assert.match(playerSource, /ApplyGroundedCollisionBox/);
   assert.match(playerSource, /CharacterUniformScale/);
+  assert.match(playerSource, /frame\.bakedPixelScale > 0f \? frame\.bakedPixelScale : 1f/);
+  assert.match(playerSource, /sceneScale\.x \* bakedMirror \/ bakedPixelScale/);
   assert.match(playerSource, /child\.SetParent\(transform, false\)/);
   assert.match(playerSource, /if \(collider == null\) collider = child\.gameObject\.AddComponent<BoxCollider2D>\(\)/);
   assert.match(playerSource, /if \(collider == null\) return;/);
@@ -1465,11 +1484,15 @@ try {
   const runtimeDatabaseSource = fs.readFileSync(path.join(unityRoot, "Assets", "XSXBFrameTuner", "Runtime", "XsxbRuntimeDatabase.cs"), "utf8");
   assert.match(runtimeDatabaseSource, /public bool headFrame;/);
   assert.match(runtimeDatabaseSource, /public string headFrameMode;/);
+  assert.match(runtimeDatabaseSource, /public float bakedPixelScale;/);
   assert.equal(fs.existsSync(path.join(unityRoot, "Assets", "XSXBFrameTuner", "Runtime", "XsxbRuntimeData.cs")), false);
   const unityImporterSource = fs.readFileSync(path.join(unityRoot, "Assets", "XSXBFrameTuner", "Runtime", "Editor", "XsxbRuntimeImporter.cs"), "utf8");
   assert.match(unityImporterSource, /\[InitializeOnLoadMethod\]/);
+  assert.match(unityImporterSource, /public override uint GetVersion\(\)[\s\S]*?return 1;/);
   assert.match(unityImporterSource, /private static void ScheduleRebuild\(\)/);
   assert.match(unityImporterSource, /item\.Contains\("\/Frames\/"\)/);
+  assert.match(unityImporterSource, /importer\.maxTextureSize = 8192;/);
+  assert.match(unityImporterSource, /TextureImporterCompression\.Uncompressed/);
   assert.doesNotMatch(unityImporterSource, /AssetDatabase\.Refresh\(ImportAssetOptions\.ForceSynchronousImport\)/);
   assert.match(unityImporterSource, /FindObjectsByType<XsxbFramePlayer>/);
   assert.match(unityImporterSource, /ResolveDatabaseForProfile/);
