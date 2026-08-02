@@ -228,7 +228,7 @@ function pruneManagedBakedFrames(projectRoot, projectId, expectedAssetPaths) {
       if (!entry.isFile()) continue;
       const assetPath = reslash(path.relative(projectRoot, fullPath));
       if (assetPath.endsWith(".meta")) {
-        if (!expectedAssetPaths.has(assetPath.slice(0, -5))) fs.unlinkSync(fullPath);
+        if (!expectedAssetPaths.has(assetPath.slice(0, -5)) && fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
         continue;
       }
       if (expectedAssetPaths.has(assetPath)) continue;

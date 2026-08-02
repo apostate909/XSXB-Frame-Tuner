@@ -1108,6 +1108,12 @@ function drawableFrameAttachments(index = selectedFrame, layer = "above", group 
     .sort((a, b) => attachmentLayerOrder(a) - attachmentLayerOrder(b) || frameImageAttachments.indexOf(b) - frameImageAttachments.indexOf(a));
 }
 
+function isMarkerOnlyFrameAttachment(attachment) {
+  return String(attachment?.name || "")
+    .toLowerCase()
+    .endsWith("_hand_anchor.png");
+}
+
 function nextAboveAttachmentLayerOrder(index = selectedFrame, group = currentGroup) {
   const maxOrder = frameImageAttachmentsForFrame(index, group)
     .reduce((max, attachment) => Math.max(max, attachmentLayerOrder(attachment)), 0);
@@ -5321,8 +5327,9 @@ function drawFrameImageAttachment(attachment, index, alpha, group = currentGroup
   ctx.restore();
 }
 
-function drawFrameImageAttachments(index, alpha, layer, group = currentGroup, groupImages = images) {
+function drawFrameImageAttachments(index, alpha, layer, group = currentGroup, groupImages = images, options = {}) {
   for (const attachment of drawableFrameAttachments(index, layer, group)) {
+    if (options.excludeMarkerOnlyAttachments === true && isMarkerOnlyFrameAttachment(attachment)) continue;
     drawFrameImageAttachment(attachment, index, alpha, group, groupImages);
   }
 }
@@ -5358,25 +5365,25 @@ function drawCompositeFrame(index, alpha, selected) {
   drawAttachedLayersForOwner(currentGroup, index, alpha, config?.projectKind === "frame_lite" ? "front" : "all");
 }
 
-function drawLiteExportComposite(index) {
+function drawLiteExportComposite(index, options = {}) {
   if (currentGroup?.previewOwner && previewOwnerGroup && previewOwnerImages.length) {
     const ownerIndex = compositeOwnerFrameIndex(index, previewOwnerGroup);
     drawFrame(ownerIndex, 1, false, previewOwnerGroup, previewOwnerImages);
-    drawFrameImageAttachments(index, 1, "below", currentGroup, images);
+    drawFrameImageAttachments(index, 1, "below", currentGroup, images, options);
     attackTrailEditor?.drawLayer("behind", index, 1);
     drawFrame(index, 1, false, currentGroup, images, {
       transform: compositeLayerTransform(currentGroup, index, previewOwnerGroup, ownerIndex),
       flipH: compositeLayerFlipH(currentGroup, previewOwnerGroup),
     });
-    drawFrameImageAttachments(index, 1, "above", currentGroup, images);
+    drawFrameImageAttachments(index, 1, "above", currentGroup, images, options);
     attackTrailEditor?.drawLayer("front", index, 1);
     return;
   }
   drawAttachedLayersForOwner(currentGroup, index, 1, "behind");
-  drawFrameImageAttachments(index, 1, "below");
+  drawFrameImageAttachments(index, 1, "below", currentGroup, images, options);
   attackTrailEditor?.drawLayer("behind", index, 1);
   drawFrame(index, 1, false);
-  drawFrameImageAttachments(index, 1, "above");
+  drawFrameImageAttachments(index, 1, "above", currentGroup, images, options);
   attackTrailEditor?.drawLayer("front", index, 1);
   drawAttachedLayersForOwner(currentGroup, index, 1, "front");
 }
@@ -5506,7 +5513,9 @@ async function renderLiteExportFrame(sample, options = {}) {
     ctx.imageSmoothingQuality = "high";
     ctx.clearRect(0, 0, width, height);
     const mainFrameRect = currentFrameRect(frameIndex);
-    drawLiteExportComposite(frameIndex);
+    drawLiteExportComposite(frameIndex, {
+      excludeMarkerOnlyAttachments: options.bakedComposite === true,
+    });
     if (options.measureOnly === true || options.crop === true) {
       const pixels = new Uint32Array(ctx.getImageData(0, 0, width, height).data.buffer);
       let left = width;
@@ -6153,6 +6162,7 @@ function unityBakePixelScaleThatFits(bounds, desiredScale, options = {}) {
 function unityBakedFrameIndexesForGroup(group, attachments, attackTrails) {
   let needsBake = false;
   const attachmentKeys = new Set((Array.isArray(attachments) ? attachments : [])
+    .filter((attachment) => !isMarkerOnlyFrameAttachment(attachment))
     .map((attachment) => String(attachment?.key || attachment?.frameKey || ""))
     .filter(Boolean));
   for (let index = 0; index < (group?.frames?.length || 0); index += 1) {
