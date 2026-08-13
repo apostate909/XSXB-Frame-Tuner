@@ -1522,12 +1522,16 @@ const server = http.createServer(async (req, res) => {
         syncCodexPetProject(ROOT, projectStore, project);
       }
       const engine = projectEngine(project);
+      const changedGroups = Array.isArray(payload.changed_groups || payload.changedGroups)
+        ? (payload.changed_groups || payload.changedGroups).map(String).filter(Boolean)
+        : null;
       const syncOptions = {
         ...(frameAudioBindings ? { frameAudioBindings } : {}),
         ...(frameImageAttachments ? { frameImageAttachments } : {}),
         ...(Array.isArray(payload.unity_baked_frames) || Array.isArray(payload.unityBakedFrames)
           ? { bakedFrames: payload.unity_baked_frames || payload.unityBakedFrames }
           : {}),
+        ...(changedGroups ? { changedGroups } : {}),
         attackTrails,
       };
       const godotSync = engine === "godot" ? syncGodotProject(ROOT, projectStore, project, syncOptions) : null;

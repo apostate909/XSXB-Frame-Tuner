@@ -516,6 +516,8 @@ let frameBoxOverrides = {};
 const GROUP_PLAYBACK_FRAME = "__group";
 let dirty = false;
 let dirtyPetProfileIds = new Set();
+let dirtyRevision = 0;
+let dirtyGroupRevisions = new Map();
 let saveInFlight = false;
 let lastSavedAt = "";
 let tunerUpdateStatus = null;
@@ -775,15 +777,36 @@ function updateSaveState() {
   renderTunerUpdateStatus();
 }
 
-function markDirty() {
+function saveScopeGroupKey(group) {
+  if (!group?.profileId) return "";
+  return `${String(group.profileId)}/${unityBakeAnimationId(group)}`;
+}
+
+function markDirty({ groups = null, profileId = "" } = {}) {
   dirty = true;
+  dirtyRevision += 1;
+  let scopedGroups = groups;
+  if (!scopedGroups && profileId) {
+    scopedGroups = (config?.groups || []).filter((group) => String(group?.profileId || "") === String(profileId));
+  }
+  if (!scopedGroups) scopedGroups = currentGroup ? [currentGroup] : [];
+  for (const group of scopedGroups) {
+    const key = saveScopeGroupKey(group);
+    if (key) dirtyGroupRevisions.set(key, dirtyRevision);
+  }
   if (config?.projectKind === "codex_pets" && currentGroup?.profileId) dirtyPetProfileIds.add(currentGroup.profileId);
   updateSaveState();
 }
 
-function markClean() {
-  dirty = false;
-  dirtyPetProfileIds.clear();
+function markClean(savedRevision = dirtyRevision, savedGroupRevisions = new Map(dirtyGroupRevisions)) {
+  for (const [key, revision] of savedGroupRevisions) {
+    if (dirtyGroupRevisions.get(key) === revision) dirtyGroupRevisions.delete(key);
+  }
+  if (dirtyRevision === savedRevision) {
+    dirty = false;
+    dirtyGroupRevisions.clear();
+    dirtyPetProfileIds.clear();
+  }
   lastSavedAt = new Date().toLocaleTimeString();
   updateSaveState();
 }
@@ -1706,6 +1729,8 @@ async function activateProject(projectId) {
   localStorage.setItem("xsxbFrameTuner.project", projectId);
   resetProjectSession();
   dirty = false;
+  dirtyRevision = 0;
+  dirtyGroupRevisions.clear();
   dirtyPetProfileIds.clear();
   await loadConfig();
   resizeCanvas();
@@ -2526,7 +2551,7 @@ function undo() {
   if (redoStack.length > 80) redoStack.shift();
   updateHistoryControls();
   restoreHistoryState(item.state).then(() => {
-    markDirty();
+    markDirty(adjustmentMode === "character" ? { profileId: currentGroup?.profileId } : undefined);
     updateHistoryControls();
     status(t("undone", { label: item.label }));
   });
@@ -2544,7 +2569,7 @@ function redo() {
   if (undoStack.length > 80) undoStack.shift();
   updateHistoryControls();
   restoreHistoryState(item.state).then(() => {
-    markDirty();
+    markDirty(adjustmentMode === "character" ? { profileId: currentGroup?.profileId } : undefined);
     updateHistoryControls();
     status(t("redone", { label: item.label }));
   });
@@ -5785,7 +5810,7 @@ function updateCharacterFromInputs(transform = transformFromAdjustmentInputs()) 
   }
   if (currentGroup.characterOffset) store[currentGroup.characterOffset] = cloneVector(transform.offset);
   if (currentGroup.characterRotation) store[currentGroup.characterRotation] = Number(transform.rotation || 0);
-  markDirty();
+  markDirty({ profileId: currentGroup.profileId });
   syncFrameInputs();
   renderFilmstrip();
   updateGroupMeta();
@@ -6006,9 +6031,10 @@ async function loadImagesForBoxGeneration(group) {
   return Promise.all((group?.frames || []).map((frame) => loadImageCached(frame).catch(() => null)));
 }
 
-async function ensureCollisionBoxOverridesForSave() {
+async function ensureCollisionBoxOverridesForSave(changedGroupKeys = null) {
   if (!Array.isArray(config?.groups)) return;
   for (const group of config.groups) {
+    if (changedGroupKeys && !changedGroupKeys.has(saveScopeGroupKey(group))) continue;
     if (!canEditBox("collisionbox", group) || !Array.isArray(group.frames) || !group.frames.length) continue;
     const groupImages = await loadImagesForBoxGeneration(group);
     const store = boxOverrideStore(group);
@@ -6188,10 +6214,11 @@ function unityBakedFrameIndexesForGroup(group, attachments, attackTrails) {
     : [];
 }
 
-async function collectUnityBakedFramesForSave(attachments, attackTrails) {
+async function collectUnityBakedFramesForSave(attachments, attackTrails, changedGroupKeys = null) {
   if (config?.projectEngine !== "unity" || !currentGroup) return [];
   const jobs = (config?.groups || [])
     .filter((group) => group?.profileId && group?.type !== "vfx" && group?.frames?.length)
+    .filter((group) => !changedGroupKeys || changedGroupKeys.has(saveScopeGroupKey(group)))
     .map((group) => ({ group, indexes: unityBakedFrameIndexesForGroup(group, attachments, attackTrails) }))
     .filter((job) => job.indexes.length > 0);
   if (!jobs.length) return [];
@@ -6301,13 +6328,19 @@ async function save() {
   saveInFlight = true;
   updateSaveState();
   try {
-    updateAdjustmentFromInputs();
     pruneNoopFrameOverrides();
-    await ensureCollisionBoxOverridesForSave();
+    const savedRevision = dirtyRevision;
+    const savedGroupRevisions = new Map(dirtyGroupRevisions);
+    const changedGroupKeysForSave = new Set(savedGroupRevisions.keys());
+    await ensureCollisionBoxOverridesForSave(changedGroupKeysForSave);
     const frameAudioBindingsForSave = config?.projectKind === "codex_pets" ? [] : await collectFrameAudioBindingsForSave();
     const frameImageAttachmentsForSave = collectFrameImageAttachmentsForSave();
     const attackTrailsForSave = config?.projectKind === "codex_pets" ? undefined : attackTrailEditor?.serialize();
-    const unityBakedFramesForSave = await collectUnityBakedFramesForSave(frameImageAttachmentsForSave, attackTrailsForSave);
+    const unityBakedFramesForSave = await collectUnityBakedFramesForSave(
+      frameImageAttachmentsForSave,
+      attackTrailsForSave,
+      changedGroupKeysForSave
+    );
     const codexPetExportsForSave = await collectCodexPetExportsForSave();
     const hadReadOnlyPetEdits = config?.projectKind === "codex_pets"
       && [...dirtyPetProfileIds].some((profileId) => !codexPetProfile(profileId)?.pet?.writable);
@@ -6323,6 +6356,7 @@ async function save() {
         frame_image_attachments: frameImageAttachmentsForSave,
         attack_trails: attackTrailsForSave,
         unity_baked_frames: config?.projectEngine === "unity" ? unityBakedFramesForSave : undefined,
+        changed_groups: config?.projectEngine === "unity" ? [...changedGroupKeysForSave] : undefined,
         frame_visual_overrides: frameOverrides,
         attack_vfx_frame_overrides: vfxFrameOverrides,
         frame_playback_overrides: framePlaybackOverrides,
@@ -6368,7 +6402,7 @@ async function save() {
     const exportedCount = Array.isArray(result.codexPetExports) ? result.codexPetExports.length : 0;
     if (exportedCount) await loadConfig();
     saveInFlight = false;
-    markClean();
+    markClean(savedRevision, savedGroupRevisions);
     const warningText = Array.isArray(result.warnings) && result.warnings.length
       ? t("warnings", { warnings: result.warnings.join("\n") })
       : "";
@@ -6377,8 +6411,8 @@ async function save() {
       if (result.godotSync?.ok === true) saveMessages.push(t("godotSynced"));
       else saveMessages.push(t("godotSyncFailed", { message: result.godotSync?.reason || "Unknown error" }));
     }
-    if (result.engine === "unity" && result.unitySync?.bakedFrameCount >= 0) {
-      saveMessages.push(`已生成 ${result.unitySync.bakedFrameCount} 张 Unity 游戏帧。`);
+    if (result.engine === "unity" && result.unitySync?.processedBakedFrames >= 0) {
+      saveMessages.push(`本次处理 ${result.unitySync.processedBakedFrames} 张 Unity 游戏帧（现有 ${result.unitySync.bakedFrameCount} 张）。`);
     }
     if (exportedCount) saveMessages.push(t("codexPetExported", { count: exportedCount }));
     if (hadReadOnlyPetEdits) saveMessages.push(t("codexPetBuiltInSaved"));
