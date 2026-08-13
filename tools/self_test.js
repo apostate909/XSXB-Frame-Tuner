@@ -649,6 +649,8 @@ assert.match(tunerAppSource, /function renderLiteExportFrame\(/);
 assert.match(tunerAppSource, /zoom: pixelScale \/ Math\.max/);
 assert.match(tunerAppSource, /function unityBakePixelScaleForFrame\(/);
 assert.match(tunerAppSource, /function unityBakePixelScaleThatFits\(/);
+assert.match(tunerAppSource, /changedGroupKeys\.has\(saveScopeGroupKey\(group\)\)/);
+assert.match(tunerAppSource, /changed_groups: config\?\.projectEngine === "unity"/);
 assert.match(tunerAppSource, /bakedPixelScale,/);
 assert.match(tunerAppSource, /function isMarkerOnlyFrameAttachment\(attachment\)/);
 assert.match(tunerAppSource, /endsWith\("_hand_anchor\.png"\)/);
@@ -1377,10 +1379,15 @@ try {
   const paths = store.projectPaths(project);
   store.writeJson(paths.manifest, { schemaVersion: 1, profiles: [{
     id: "hero", label: "Hero", kind: "actor", bodyScale: 0.5, runtimeScale: 2, source_faces_left: true,
-    animations: [{ id: "attack", fps: 10, anchorMode: "canvas_bottom_center", frames: [
-      { id: "f1", name: "f1.png", path: framePath, duration: 1, width: 1, height: 1 },
-      { id: "f2", name: "f2.png", path: framePath, duration: 1, width: 1, height: 1 },
-    ] }],
+    animations: [
+      { id: "attack", fps: 10, anchorMode: "canvas_bottom_center", frames: [
+        { id: "f1", name: "f1.png", path: framePath, duration: 1, width: 1, height: 1 },
+        { id: "f2", name: "f2.png", path: framePath, duration: 1, width: 1, height: 1 },
+      ] },
+      { id: "idle", fps: 8, anchorMode: "canvas_bottom_center", frames: [
+        { id: "idle1", name: "idle1.png", path: framePath, duration: 1, width: 1, height: 1 },
+      ] },
+    ],
   }] });
   store.writeJson(paths.tuning, {
     schemaVersion: 1,
@@ -1427,7 +1434,8 @@ try {
     mainAnchor: { x: 10, y: 12 },
   }] });
   assert.equal(result.engine, "unity");
-  assert.equal(result.frameCount, 2);
+  assert.equal(result.frameCount, 3);
+  assert.equal(result.checkedFrames, 3);
   assert.deepEqual(result.errors, []);
   assert.deepEqual(validateUnitySync(unityRoot, "unity_demo"), []);
   assert.equal(result.writes.syncSignal, true);
@@ -1510,6 +1518,22 @@ try {
   assert.match(unityImporterSource, /xsxb_sync_signal\.json/);
   assert.match(unityImporterSource, /nextSignalPollAt = EditorApplication\.timeSinceStartup \+ 0\.75d/);
   assert.match(unityImporterSource, /EditorApplication\.isCompiling \|\| EditorApplication\.isUpdating/);
+  const incrementalSyncResult = syncUnityProject(unitySyncTestRoot, store, project, {
+    changedGroups: ["hero/idle"],
+    bakedFrames: [],
+  });
+  assert.equal(incrementalSyncResult.checkedFrames, 1);
+  assert.equal(incrementalSyncResult.bakedFrameCount, 1);
+  assert.equal(incrementalSyncResult.processedBakedFrames, 0);
+  assert.deepEqual(JSON.parse(fs.readFileSync(syncSignalPath, "utf8")).changedGroups, ["hero/idle"]);
+  const removeBakedAttackResult = syncUnityProject(unitySyncTestRoot, store, project, {
+    changedGroups: ["hero/attack"],
+    bakedFrames: [],
+  });
+  assert.equal(removeBakedAttackResult.checkedFrames, 2);
+  assert.equal(removeBakedAttackResult.bakedFrameCount, 0);
+  assert.equal(removeBakedAttackResult.processedBakedFrames, 0);
+  assert.equal(removeBakedAttackResult.removedStaleBakedFrames, 1);
   const directRuntime = buildRuntimeData({ projectId: "unity_demo", manifest: store.readJson(paths.manifest, {}), tuning: store.readJson(paths.tuning, {}) });
   assert.equal(directRuntime.profiles[0].sourceFacesLeft, true);
 } finally {

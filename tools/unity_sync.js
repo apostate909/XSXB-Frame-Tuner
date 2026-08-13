@@ -128,11 +128,12 @@ function writeJson(filePath, value) {
   return writeIfChanged(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function writeSyncSignal(filePath, projectId) {
+function writeSyncSignal(filePath, projectId, changedGroups = null) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify({
     schemaVersion: 1,
     projectId: String(projectId || ""),
+    changedGroups: Array.isArray(changedGroups) ? changedGroups.map(String) : null,
     savedAtUtc: new Date().toISOString(),
     nonce: crypto.randomBytes(16).toString("hex"),
   }, null, 2)}\n`, "utf8");
@@ -242,20 +243,40 @@ function pruneManagedBakedFrames(projectRoot, projectId, expectedAssetPaths) {
   return removed;
 }
 
-function syncBakedFrames(projectRoot, project, input) {
-  const frames = [];
+function syncBakedFrames(projectRoot, project, input, options = {}) {
+  const changedGroups = Array.isArray(options.changedGroups) ? new Set(options.changedGroups.map(String)) : null;
+  const bakedManifestPath = path.join(projectRoot, "Assets", "XSXBFrameTuner", "RuntimeData", project.id, "baked_frames.json");
+  let previousFrames = [];
+  if (changedGroups && fs.existsSync(bakedManifestPath)) {
+    try {
+      previousFrames = JSON.parse(fs.readFileSync(bakedManifestPath, "utf8"));
+    } catch {
+      previousFrames = [];
+    }
+  }
+  const frames = (Array.isArray(previousFrames) ? previousFrames : []).filter((frame) => {
+    const key = `${String(frame?.profileId || "")}/${String(frame?.animationId || "")}`;
+    return !changedGroups.has(key);
+  });
   const expectedAssetPaths = new Set();
+  for (const frame of frames) {
+    if (frame?.assetPath) expectedAssetPaths.add(reslash(frame.assetPath));
+  }
   let writtenFrames = 0;
+  let processedFrames = 0;
   const warnings = [];
   for (const [index, source] of (Array.isArray(input) ? input : []).entries()) {
     const profileId = String(source?.profileId || "");
     const animationId = String(source?.animationId || "");
+    const groupKey = `${profileId}/${animationId}`;
+    if (changedGroups && !changedGroups.has(groupKey)) continue;
     const frameIndex = Math.max(0, Math.round(Number(source?.frameIndex || 0)));
     const decoded = decodeDataUrl(source?.data);
     if (!profileId || !animationId || !decoded?.buffer?.length || !/^image\/png$/i.test(decoded.mime)) {
       warnings.push(`Invalid baked frame: ${profileId || "profile"}/${animationId || "animation"}:${frameIndex || index}`);
       continue;
     }
+    processedFrames += 1;
     const assetPath = unityAssetPath(
       "BakedFrames",
       project.id,
@@ -284,8 +305,9 @@ function syncBakedFrames(projectRoot, project, input) {
       },
     });
   }
+  frames.sort((left, right) => String(left?.key || "").localeCompare(String(right?.key || "")));
   const removedStaleFrames = pruneManagedBakedFrames(projectRoot, project.id, expectedAssetPaths);
-  return { frames, writtenFrames, removedStaleFrames, warnings };
+  return { frames, processedFrames, writtenFrames, removedStaleFrames, warnings };
 }
 
 function extensionForAudio(binding, mime = "") {
@@ -300,9 +322,11 @@ function extensionForAudio(binding, mime = "") {
   return ".bytes";
 }
 
-function syncManifest(root, projectRoot, project, input) {
+function syncManifest(root, projectRoot, project, input, options = {}) {
   const manifest = clone(input || EMPTY_MANIFEST);
+  const changedGroups = Array.isArray(options.changedGroups) ? new Set(options.changedGroups.map(String)) : null;
   let frameCount = 0;
+  let checkedFrames = 0;
   let copiedFrames = 0;
   const expectedAssetPaths = new Set();
   const warnings = [];
@@ -310,18 +334,25 @@ function syncManifest(root, projectRoot, project, input) {
     const profileId = safeSegment(profile.id, "profile");
     for (const animation of Array.isArray(profile.animations) ? profile.animations : []) {
       const animationId = safeSegment(animation.id || animation.name, "animation");
+      const groupKey = `${String(profile.id || "")}/${String(animation.id || animation.name || "")}`;
       const frames = Array.isArray(animation.frames) ? animation.frames : [];
       frames.forEach((frame, index) => {
         frameCount += 1;
-        const source = sourcePath(root, projectRoot, frame.path);
-        const ext = path.extname(source || frame.name || frame.path || ".png").toLowerCase() || ".png";
+        const originalPath = frame.path;
+        const ext = path.extname(frame.name || originalPath || ".png").toLowerCase() || ".png";
         const sourceName = path.basename(frame.name || frame.path || `frame${ext}`);
         const stem = path.basename(sourceName, path.extname(sourceName));
         const fileName = `${String(index).padStart(4, "0")}_${safeSegment(stem, "frame")}${ext}`;
         const assetPath = unityAssetPath("Frames", project.id, profileId, animationId, fileName);
         expectedAssetPaths.add(assetPath);
-        if (!source) warnings.push(`Missing frame source: ${profile.id}/${animation.id}:${index}`);
-        else if (copyAsset(source, projectRoot, assetPath)) copiedFrames += 1;
+        const targetPath = path.join(projectRoot, ...assetPath.split("/"));
+        const shouldCheck = !changedGroups || changedGroups.has(groupKey) || !fs.existsSync(targetPath);
+        if (shouldCheck) {
+          checkedFrames += 1;
+          const source = sourcePath(root, projectRoot, originalPath);
+          if (!source) warnings.push(`Missing frame source: ${profile.id}/${animation.id}:${index}`);
+          else if (copyAsset(source, projectRoot, assetPath)) copiedFrames += 1;
+        }
         frame.path = assetPath;
         frame.assetPath = assetPath;
       });
@@ -329,7 +360,7 @@ function syncManifest(root, projectRoot, project, input) {
     }
   }
   const removedStaleFrames = pruneManagedFrameAssets(projectRoot, project.id, expectedAssetPaths);
-  return { manifest, frameCount, copiedFrames, removedStaleFrames, warnings };
+  return { manifest, frameCount, checkedFrames, copiedFrames, removedStaleFrames, warnings };
 }
 
 function syncAudio(root, projectRoot, project, input) {
@@ -489,16 +520,18 @@ function syncUnityProject(root, projectStore, project, options = {}) {
   const audioInput = options.frameAudioBindings ?? projectStore.readJson(paths.frameAudio, []);
   const attachmentInput = options.frameImageAttachments ?? projectStore.readJson(paths.frameImageAttachments, []);
   const trailInput = options.attackTrails || projectStore.readJson(paths.attackTrails, EMPTY_ATTACK_TRAILS);
-  const manifestResult = syncManifest(root, projectRoot, project, manifestInput);
+  const changedGroups = Array.isArray(options.changedGroups) ? options.changedGroups.map(String) : null;
+  const manifestResult = syncManifest(root, projectRoot, project, manifestInput, { changedGroups });
   const audioResult = syncAudio(root, projectRoot, project, audioInput);
   const attachmentResult = syncAttachments(root, projectRoot, project, attachmentInput);
   const trailResult = syncAttackTrails(root, projectRoot, project, trailInput);
   const dataRoot = path.join(projectRoot, "Assets", "XSXBFrameTuner", "RuntimeData", project.id);
   const bakedManifestPath = path.join(dataRoot, "baked_frames.json");
   const bakedResult = options.bakedFrames !== undefined
-    ? syncBakedFrames(projectRoot, project, options.bakedFrames)
+    ? syncBakedFrames(projectRoot, project, options.bakedFrames, { changedGroups })
     : {
         frames: fs.existsSync(bakedManifestPath) ? projectStore.readJson(bakedManifestPath, []) : [],
+        processedFrames: 0,
         writtenFrames: 0,
         removedStaleFrames: 0,
         warnings: [],
@@ -526,7 +559,7 @@ function syncUnityProject(root, projectStore, project, options = {}) {
     attackTrails: writeJson(path.join(dataRoot, "attack_trails.json"), trailResult.trails),
     bakedFrames: writeJson(bakedManifestPath, bakedResult.frames),
     runtimeData: writeJson(path.join(dataRoot, "xsxb_runtime_data.json"), runtimeData),
-    syncSignal: writeSyncSignal(path.join(dataRoot, "xsxb_sync_signal.json"), project.id),
+    syncSignal: writeSyncSignal(path.join(dataRoot, "xsxb_sync_signal.json"), project.id, changedGroups),
   };
   const runtime = ensureUnityRuntime(projectRoot);
   const errors = validateUnitySync(projectRoot, project.id);
@@ -534,7 +567,9 @@ function syncUnityProject(root, projectStore, project, options = {}) {
     engine: "unity",
     projectRoot,
     dataRoot: reslash(path.relative(projectRoot, dataRoot)),
+    changedGroups: changedGroups || [],
     frameCount: manifestResult.frameCount,
+    checkedFrames: manifestResult.checkedFrames,
     copiedFrames: manifestResult.copiedFrames,
     removedStaleFrames: manifestResult.removedStaleFrames,
     audioCount: audioResult.bindings.length,
@@ -543,6 +578,7 @@ function syncUnityProject(root, projectStore, project, options = {}) {
     copiedAttachments: attachmentResult.copiedAttachments,
     copiedTrailTextures: trailResult.copiedTrailTextures,
     bakedFrameCount: bakedResult.frames.length,
+    processedBakedFrames: bakedResult.processedFrames,
     writtenBakedFrames: bakedResult.writtenFrames,
     removedStaleBakedFrames: bakedResult.removedStaleFrames,
     runtimeFilesChanged: runtime.files.filter((entry) => entry.changed).length,
