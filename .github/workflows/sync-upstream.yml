@@ -1,8 +1,6 @@
-name: Sync fork with upstream
+name: Manual sync fork with upstream
 
 on:
-  schedule:
-    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 permissions:
